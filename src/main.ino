@@ -90,12 +90,107 @@ void forceStopMp3()
 
 
 
-/*
-TODO
-sychronizes the time
-*/
-void syncClock(){};
+/**********************************************
+             time functions
 
+***********************************************/
+// NTP Servers:
+static const char ntpServerName[] = "us.pool.ntp.org";
+const int timeZone = 1; 
+WiFiUDP Udp;
+unsigned int localPort = 8888; 
+
+void syncClock(){
+  USE_SERIAL.println(F("Synchronizing inner clock..."));
+  Udp.begin(localPort);
+  setSyncProvider(getNtpTime);
+  setSyncInterval(1);
+  delay(3000);
+  setSyncInterval(3000);
+  void digitalClockDisplay();
+};
+
+void printDigits(int digits)
+{
+  // utility for digital clock display: prints preceding colon and leading 0
+  Serial.print(":");
+  if (digits < 10)
+    Serial.print('0');
+  Serial.print(digits);
+}
+
+void digitalClockDisplay()
+{
+  // digital clock display of the time
+  Serial.print(hour());
+  printDigits(minute());
+  printDigits(second());
+  Serial.print(" ");
+  Serial.print(day());
+  Serial.print(".");
+  Serial.print(month());
+  Serial.print(".");
+  Serial.print(year());
+  Serial.println();
+}
+
+const int NTP_PACKET_SIZE = 48; // NTP time is in the first 48 bytes of message
+byte packetBuffer[NTP_PACKET_SIZE]; //buffer to hold incoming & outgoing packets
+
+time_t getNtpTime()
+{
+  IPAddress ntpServerIP; // NTP server's ip address
+
+  while (Udp.parsePacket() > 0) ; // discard any previously received packets
+  Serial.println("Transmit NTP Request");
+  // get a random server from the pool
+  WiFi.hostByName(ntpServerName, ntpServerIP);
+  Serial.print(ntpServerName);
+  Serial.print(": ");
+  Serial.println(ntpServerIP);
+  sendNTPpacket(ntpServerIP);
+  uint32_t beginWait = millis();
+  while (millis() - beginWait < 1500) {
+    int size = Udp.parsePacket();
+    if (size >= NTP_PACKET_SIZE) {
+      Serial.println("Receive NTP Response");
+      Udp.read(packetBuffer, NTP_PACKET_SIZE);  // read packet into the buffer
+      unsigned long secsSince1900;
+      // convert four bytes starting at location 40 to a long integer
+      secsSince1900 =  (unsigned long)packetBuffer[40] << 24;
+      secsSince1900 |= (unsigned long)packetBuffer[41] << 16;
+      secsSince1900 |= (unsigned long)packetBuffer[42] << 8;
+      secsSince1900 |= (unsigned long)packetBuffer[43];
+      return secsSince1900 - 2208988800UL + timeZone * SECS_PER_HOUR;
+    }
+  }
+  Serial.println("No NTP Response :-(");
+  return 0; // return 0 if unable to get the time
+}
+
+// send an NTP request to the time server at the given address
+void sendNTPpacket(IPAddress &address)
+{
+  // set all bytes in the buffer to 0
+  memset(packetBuffer, 0, NTP_PACKET_SIZE);
+  // Initialize values needed to form NTP request
+  // (see URL above for details on the packets)
+  packetBuffer[0] = 0b11100011;   // LI, Version, Mode
+  packetBuffer[1] = 0;     // Stratum, or type of clock
+  packetBuffer[2] = 6;     // Polling Interval
+  packetBuffer[3] = 0xEC;  // Peer Clock Precision
+  // 8 bytes of zero for Root Delay & Root Dispersion
+  packetBuffer[12] = 49;
+  packetBuffer[13] = 0x4E;
+  packetBuffer[14] = 49;
+  packetBuffer[15] = 52;
+  // all NTP fields have been given values, now
+  // you can send a packet requesting a timestamp:
+  Udp.beginPacket(address, 123); //NTP requests are to port 123
+  Udp.write(packetBuffer, NTP_PACKET_SIZE);
+  Udp.endPacket();
+}
+/**************end of section********************/
 /*
 TODO
 reports data to the spreadsheet server
@@ -107,6 +202,12 @@ TODO
 checks if the daily paramteres need an update
 */
 void checkParams(){};
+
+String getParams(){
+  return GETTask("https://script.google.com/macros/s/"+GScriptId+"/exec?deviceId="+ESP.getChipId());
+  //todo handling error
+  //TODO: put it into some longterm storgae, LittleFS should be gud
+};
 
 /*
 TODO
@@ -122,67 +223,8 @@ void stopGSM(){};
 
 
 
-
-
-
-/* TODO: delete this. This is an example from arduinojson
-
-{
-"7":{
-   "tracks":[1,2],
-  "minT":30,
-  "maxT":50
-  },
-"8":{
-   "tracks":[2],
-  "minT":35,
-  "maxT":35
-  },
-"9":{
-   "tracks":[1],
-  "minT":40,
-  "maxT":50
-  }
-}
-
--------------
-const char* json = "{\"7\":{\"tracks\":[1,2],\"minT\":30,\"maxT\":50},\"8\":{\"tracks\":[2],\"minT\":35,\"maxT\":35},\"9\":{\"tracks\":[1],\"minT\":40,\"maxT\":50}}";
-
-DynamicJsonDocument doc(384);
-deserializeJson(doc, json);
-
-JsonObject root_7 = doc["7"];
-
-int root_7_tracks_0 = root_7["tracks"][0]; // 1
-int root_7_tracks_1 = root_7["tracks"][1]; // 2
-
-int root_7_minT = root_7["minT"]; // 30
-int root_7_maxT = root_7["maxT"]; // 50
-
-JsonObject root_8 = doc["8"];
-
-int root_8_tracks_0 = root_8["tracks"][0]; // 2
-
-int root_8_minT = root_8["minT"]; // 35
-int root_8_maxT = root_8["maxT"]; // 35
-
-JsonObject root_9 = doc["9"];
-
-int root_9_tracks_0 = root_9["tracks"][0]; // 1
-
-int root_9_minT = root_9["minT"]; // 40
-int root_9_maxT = root_9["maxT"]; // 50
-*/
-
-/*
-//get config data from network or flashdisk or mock
-char getParamJson()
-{
-  char mockjson = "{\"7\":{\"tracks\":[1,2],\"minT\":30,\"maxT\":50},\"8\":{\"tracks\":[2],\"minT\":35,\"maxT\":35},\"9\":{\"tracks\":[1],\"minT\":40,\"maxT\":50}}";
-  return mockjson;
-}*/
-const char* mockjson = "{\"7\":{\"tracks\":[1,2],\"minT\":30,\"maxT\":50},\"9\":{\"tracks\":[2],\"minT\":35,\"maxT\":35},\"9\":{\"tracks\":[1],\"minT\":40,\"maxT\":50}}";
-DynamicJsonDocument doc(384);
+const char* mockjson = "[{\"hour\":1,\"tracks\":[2,1,3],\"minT\":10,\"maxT\":14},{\"hour\":13,\"tracks\":[2,5],\"minT\":10,\"maxT\":14},{\"hour\":3,\"tracks\":[2,5],\"minT\":5,\"maxT\":6}]";
+DynamicJsonDocument doc(3072);
 
 /*
 returns the object for the current hours play parameters (which tracks, pause times between tracks) from the global json object
@@ -190,85 +232,15 @@ returns the object for the current hours play parameters (which tracks, pause ti
 JsonObject getPlayParams()
 {
   int currentHour = hour(); //TODO: get time from the GSM module
-  deserializeJson(doc, mockjson);
+  deserializeJson(doc,getParams());
   JsonObject object;
   USE_SERIAL.println("this hour is: " + String(currentHour));
-  switch (currentHour)
-  { //pls don't judge, i didn't found any other way
-  case 1:
-       object = doc["1"]; 
-    break;
-  case 2:
-       object = doc["2"]; 
-    break;
-case 3:
-       object = doc["3"]; 
-    break;
-case 4:
-       object = doc["4"]; 
-    break;
-    case 5:
-       object = doc["5"]; 
-    break;
-    case 6:
-       object = doc["6"]; 
-    break;
-    case 7:
-       object = doc["7"]; 
-    break;
-    case 8:
-       object = doc["8"]; 
-    break;
-    case 9:
-       object = doc["9"]; 
-    break;
-    case 10:
-       object = doc["10"]; 
-    break;
-    case 11:
-       object = doc["11"]; 
-    break;
-    case 12:
-       object = doc["12"]; 
-    break;
-    case 13:
-       object = doc["13"]; 
-    break;
-    case 14:
-       object = doc["14"]; 
-    break;
-    case 15:
-       object = doc["15"]; 
-    break;
-    case 16:
-       object = doc["16"]; 
-    break;
-    case 17:
-       object = doc["17"]; 
-    break;
-    case 18:
-       object = doc["18"]; 
-    break;
-    case 19:
-       object = doc["19"]; 
-    break;
-    case 20:
-       object = doc["20"]; 
-    break;
-    case 21:
-       object = doc["21"]; 
-    break;
-    case 22:
-       object = doc["22"]; 
-    break;
-    case 23:
-       object = doc["23"]; 
-    break;
-    case 24:
-       object = doc["24"]; 
-    break;
-        
-  default:
+  
+  for(int i=1;i<24;i++){
+    object = doc[i];
+    USE_SERIAL.println("processing:");
+    serializeJsonPretty(object,USE_SERIAL);
+    if (object["hour"] == currentHour)
     break;
   }
 
@@ -283,6 +255,7 @@ returns the length in seconds of the given tracknumber. If it doesn't know, retu
 int getTrackLength(int tracknumber)
 {
   return 11;
+  //TODO use a file system file here
 }
 
 //TODO rewrite this to give back the message dont print it out, i want to put this message into logs
@@ -606,7 +579,7 @@ void setup()
   WiFiManager wifiManager;
   wifiManager.setTimeout(300);
   wifiManager.autoConnect("birdnoise_config_accesspoint");
-
+  delay(3000); //give somte time for the Wifi connection
   //UNCOMMENTME updateFunc(name, ver); //checking update
 
 
@@ -660,7 +633,7 @@ void loop()
     int currentTrack = thisHourParams["tracks"][i];
     int minT = thisHourParams["minT"];
     int maxT = thisHourParams["maxT"];
-    Serial.println("play track:" + String(currentTrack));
+    Serial.println("play track:" + String(currentTrack) +" for secs: " + getTrackLength(currentTrack));
     myDFPlayer.play(currentTrack);
     delay(getTrackLength(currentTrack) * 1000 + 5000); //wait until the end of track and 5 more secs to be sure
     //TODO a tracklength 10edénél rámérni hogy megy-e
