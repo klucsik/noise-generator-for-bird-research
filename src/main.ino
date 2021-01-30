@@ -18,10 +18,10 @@ Secrets sec;
 static String name = conf.name;
 static String ver = "0_1";
 
-const String update_server = sec.update_server; //at this is url is the python flask update server, which I wrote
-const String GScriptId = sec.gID; //This is the secret ID of the Google script app which connects to the Google Spreadsheets
-const String data_sheet = conf.data_sheet; //name of the sheet on the Spreadsheet where the data will be logged
-const String log_sheet = conf.log_sheet; //name of the sheet on the Spreadsheet where the events will be logged
+const String update_server = sec.update_server;   //at this is url is the python flask update server, which I wrote
+const String GScriptId = sec.gID;                 //This is the secret ID of the Google script app which connects to the Google Spreadsheets
+const String data_sheet = conf.data_sheet;        //name of the sheet on the Spreadsheet where the data will be logged
+const String log_sheet = conf.log_sheet;          //name of the sheet on the Spreadsheet where the events will be logged
 const String discord_chanel = sec.discord_chanel; //a discord channel webhook, we send startup messages there
 
 #define USE_SERIAL Serial
@@ -45,6 +45,10 @@ const String discord_chanel = sec.discord_chanel; //a discord channel webhook, w
 ESP8266WiFiMulti WiFiMulti;
 WiFiClient client;
 
+#include "LittleFS.h"
+
+DynamicJsonDocument doc(3500);
+
 /**********************************************
              MP3 player functions
 
@@ -66,7 +70,6 @@ boolean startMp3(Stream &softSerial)
     USE_SERIAL.println(F("2.Please insert the SD card!"));
 
     // TODO: try to determine cause, and return false
-    
   }
   myDFPlayer.volume(15); //Set volume value. From 0 to 30
   return true;
@@ -85,22 +88,18 @@ void forceStopMp3()
 }
 /**************end of section********************/
 
-
-
-
-
-
 /**********************************************
              time functions
 
 ***********************************************/
 // NTP Servers:
 static const char ntpServerName[] = "us.pool.ntp.org";
-const int timeZone = 1; 
+const int timeZone = 1;
 WiFiUDP Udp;
-unsigned int localPort = 8888; 
+unsigned int localPort = 8888;
 
-void syncClock(){
+void syncClock()
+{
   USE_SERIAL.println(F("Synchronizing inner clock..."));
   Udp.begin(localPort);
   setSyncProvider(getNtpTime);
@@ -134,14 +133,15 @@ void digitalClockDisplay()
   Serial.println();
 }
 
-const int NTP_PACKET_SIZE = 48; // NTP time is in the first 48 bytes of message
+const int NTP_PACKET_SIZE = 48;     // NTP time is in the first 48 bytes of message
 byte packetBuffer[NTP_PACKET_SIZE]; //buffer to hold incoming & outgoing packets
 
 time_t getNtpTime()
 {
   IPAddress ntpServerIP; // NTP server's ip address
 
-  while (Udp.parsePacket() > 0) ; // discard any previously received packets
+  while (Udp.parsePacket() > 0)
+    ; // discard any previously received packets
   Serial.println("Transmit NTP Request");
   // get a random server from the pool
   WiFi.hostByName(ntpServerName, ntpServerIP);
@@ -150,14 +150,16 @@ time_t getNtpTime()
   Serial.println(ntpServerIP);
   sendNTPpacket(ntpServerIP);
   uint32_t beginWait = millis();
-  while (millis() - beginWait < 1500) {
+  while (millis() - beginWait < 1500)
+  {
     int size = Udp.parsePacket();
-    if (size >= NTP_PACKET_SIZE) {
+    if (size >= NTP_PACKET_SIZE)
+    {
       Serial.println("Receive NTP Response");
-      Udp.read(packetBuffer, NTP_PACKET_SIZE);  // read packet into the buffer
+      Udp.read(packetBuffer, NTP_PACKET_SIZE); // read packet into the buffer
       unsigned long secsSince1900;
       // convert four bytes starting at location 40 to a long integer
-      secsSince1900 =  (unsigned long)packetBuffer[40] << 24;
+      secsSince1900 = (unsigned long)packetBuffer[40] << 24;
       secsSince1900 |= (unsigned long)packetBuffer[41] << 16;
       secsSince1900 |= (unsigned long)packetBuffer[42] << 8;
       secsSince1900 |= (unsigned long)packetBuffer[43];
@@ -175,10 +177,10 @@ void sendNTPpacket(IPAddress &address)
   memset(packetBuffer, 0, NTP_PACKET_SIZE);
   // Initialize values needed to form NTP request
   // (see URL above for details on the packets)
-  packetBuffer[0] = 0b11100011;   // LI, Version, Mode
-  packetBuffer[1] = 0;     // Stratum, or type of clock
-  packetBuffer[2] = 6;     // Polling Interval
-  packetBuffer[3] = 0xEC;  // Peer Clock Precision
+  packetBuffer[0] = 0b11100011; // LI, Version, Mode
+  packetBuffer[1] = 0;          // Stratum, or type of clock
+  packetBuffer[2] = 6;          // Polling Interval
+  packetBuffer[3] = 0xEC;       // Peer Clock Precision
   // 8 bytes of zero for Root Delay & Root Dispersion
   packetBuffer[12] = 49;
   packetBuffer[13] = 0x4E;
@@ -191,23 +193,6 @@ void sendNTPpacket(IPAddress &address)
   Udp.endPacket();
 }
 /**************end of section********************/
-/*
-TODO
-reports data to the spreadsheet server
-*/
-void runHourlyReport(){};
-
-/*
-TODO
-checks if the daily paramteres need an update
-*/
-void checkParams(){};
-
-String getParams(){
-  return GETTask("https://script.google.com/macros/s/"+GScriptId+"/exec?deviceId="+ESP.getChipId());
-  //todo handling error
-  //TODO: put it into some longterm storgae, LittleFS should be gud
-};
 
 /*
 TODO
@@ -219,12 +204,62 @@ TODO
 */
 void stopGSM(){};
 
+/*
+TODO
+reports data to the spreadsheet server
+*/
+void runHourlyReport(){};
 
+int paramVersionHere = -2;
 
+/*
+checks if the daily paramteres need an update
+*/
+void checkParams()
+{
+  String resp = GETTask("https://script.google.com/macros/s/" + GScriptId + "/exec?deviceId=" + ESP.getChipId() + "&paramVersion=" + String(paramVersionHere));
+  if (resp.indexOf("playParams") != -1)
+  {
+    //save to file
+    File file = LittleFS.open("/playParams.json", "w");
+    if (!file)
+    {
+      USE_SERIAL.println("file open failed");
+    }
+    else
+    {
 
+      int bytesWritten = file.print(resp);
 
-const char* mockjson = "[{\"hour\":1,\"tracks\":[2,1,3],\"minT\":10,\"maxT\":14},{\"hour\":13,\"tracks\":[2,5],\"minT\":10,\"maxT\":14},{\"hour\":3,\"tracks\":[2,5],\"minT\":5,\"maxT\":6}]";
-DynamicJsonDocument doc(3072);
+      if (bytesWritten > 0)
+      {
+        Serial.println("File was written ");
+        Serial.println(bytesWritten);
+      }
+      else
+      {
+        Serial.println("File write failed");
+      }
+
+      file.close();
+    }
+  }
+};
+
+String getParams()
+{
+  File f = LittleFS.open("/playParams.json", "r");
+  if (!f)
+  {
+    USE_SERIAL.println("file open failed");
+  }
+  else
+  {
+    String data = f.readString();
+    USE_SERIAL.print(data);
+    return data;
+  }
+};
 
 /*
 returns the object for the current hours play parameters (which tracks, pause times between tracks) from the global json object
@@ -232,20 +267,22 @@ returns the object for the current hours play parameters (which tracks, pause ti
 JsonObject getPlayParams()
 {
   int currentHour = hour(); //TODO: get time from the GSM module
-  deserializeJson(doc,getParams());
+  deserializeJson(doc, getParams());
   JsonObject object;
+  paramVersionHere = doc["paramVersion"] | -1;
   USE_SERIAL.println("this hour is: " + String(currentHour));
-  
-  for(int i=1;i<24;i++){
-    object = doc[i];
-    USE_SERIAL.println("processing:");
-    serializeJsonPretty(object,USE_SERIAL);
+
+  for (int i = 1; i < 24; i++)
+  {
+    object = doc["playParams"][i];
+    //USE_SERIAL.println("processing:");
+    //serializeJsonPretty(object,USE_SERIAL);
     if (object["hour"] == currentHour)
-    break;
+      break;
   }
 
   USE_SERIAL.println("hourly config:");
-  serializeJsonPretty(object,USE_SERIAL);
+  serializeJsonPretty(object, USE_SERIAL);
   return object;
 }
 
@@ -356,6 +393,7 @@ void updateFunc(String Name, String Version) //TODO: documentation
         USE_SERIAL.println(payload);
         if (payload.indexOf("bin") > 0)
         {
+          LittleFS.end();
           httpUpdateFunc(update_server + payload);
         }
       }
@@ -465,7 +503,6 @@ String GETTask(String url)
     USE_SERIAL.print(F("[HTTPS] GET "));
     USE_SERIAL.println(url);
 
-
     int httpCode = https.GET();
 
     // httpCode will be negative on error
@@ -506,7 +543,7 @@ String GETTask(String url)
   return "";
 };
 
-String POSTTask(String url,  String payload)
+String POSTTask(String url, String payload)
 {
   std::unique_ptr<BearSSL::WiFiClientSecure> client(new BearSSL::WiFiClientSecure);
   client->setInsecure();
@@ -557,8 +594,6 @@ String POSTTask(String url,  String payload)
 
 /**************end of section********************/
 
-
-
 /**********************************************
              Main arduino functions
 
@@ -582,7 +617,6 @@ void setup()
   delay(3000); //give somte time for the Wifi connection
   //UNCOMMENTME updateFunc(name, ver); //checking update
 
-
   Serial.println(F("Initializing DFPlayer ... (May take 3~5 seconds)"));
   startMp3(mySoftwareSerial);
   //TODO:handle error if returns false
@@ -592,26 +626,30 @@ void setup()
   delay(1000);
   Serial.println(F("DFPlayer Mini online."));
   syncClock();
+  LittleFS.begin();
+  checkParams();
 }
 
 void loop()
 {
   Serial.println(F("begining of main loop"));
 
-  if (minute() < 5 )
+  if (minute() < 5)
   {
-    if(!hourlySetupFlag){ //just once do the hourly stuff
-    Serial.println(F("First minutes of hour, do hourly stuff:"));
-    syncClock();
-    startGSM();
-    runHourlyReport();
-    checkParams();
-    stopGSM();
-    hourlySetupFlag=true;
+    if (!hourlySetupFlag)
+    { //just once do the hourly stuff
+      Serial.println(F("First minutes of hour, do hourly stuff:"));
+      syncClock();
+      startGSM();
+      runHourlyReport();
+      checkParams();
+      stopGSM();
+      hourlySetupFlag = true;
     }
   }
-  else{
-    hourlySetupFlag=false;
+  else
+  {
+    hourlySetupFlag = false;
   }
 
   //main business logic
@@ -619,7 +657,7 @@ void loop()
   JsonObject thisHourParams = getPlayParams();
   if (thisHourParams.isNull())
   {
-    long sleeptime = 55 - minute() * 60 * 1000 * 1000;
+    long sleeptime = (55 - minute()) * 60 * 1000 * 1000;
     if (sleeptime > 0)
     {
       Serial.println("going to deepsleep for:" + String(sleeptime));
@@ -633,22 +671,20 @@ void loop()
     int currentTrack = thisHourParams["tracks"][i];
     int minT = thisHourParams["minT"];
     int maxT = thisHourParams["maxT"];
-    Serial.println("play track:" + String(currentTrack) +" for secs: " + getTrackLength(currentTrack));
+    Serial.println("play track:" + String(currentTrack) + " for secs: " + getTrackLength(currentTrack));
     myDFPlayer.play(currentTrack);
     delay(getTrackLength(currentTrack) * 1000 + 5000); //wait until the end of track and 5 more secs to be sure
     //TODO a tracklength 10edénél rámérni hogy megy-e
     Serial.print(F("DFplayer state: "));
-    Serial.println(myDFPlayer.readState());                           //determine stop
-      if (myDFPlayer.available())
-        {
-          printDetail(myDFPlayer.readType(), myDFPlayer.read()); //Print the detail message from DFPlayer to handle different errors and states.
-        }
+    Serial.println(myDFPlayer.readState()); //determine stop
+    if (myDFPlayer.available())
+    {
+      printDetail(myDFPlayer.readType(), myDFPlayer.read()); //Print the detail message from DFPlayer to handle different errors and states.
+    }
     stopMp3();
     //calculate pause between tracks:
     long calculatedDelay = random(minT, maxT) * 1000;
-    Serial.println("pause play for secs: " + String(calculatedDelay/1000));
+    Serial.println("pause play for secs: " + String(calculatedDelay / 1000));
     delay(calculatedDelay);
   }
-
-
 }
