@@ -636,9 +636,12 @@ void setup()
   startMp3(mySoftwareSerial);
   //TODO:handle error if returns false
 
-  //TODO: if resetcause is normal reset/powering on, give a wellcome sound to the operator
-  myDFPlayer.play(1);
-  delay(1000);
+  if (ESP.getResetReason() == "External System")
+  { //kézi újraindításnál
+    myDFPlayer.play(1);
+    delay(1000);
+  }
+
   Serial.println(F("DFPlayer Mini online."));
   syncClock();
   LittleFS.begin();
