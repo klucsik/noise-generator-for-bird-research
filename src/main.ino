@@ -3,10 +3,10 @@ Noise generator for birds
 Written by Krisztián Pál Klucsik
 
 TODOs:
-time get
+webupdating of the tracklengths file
 logging
 error handling (message to discord)
-parameterizing the playing
+GSM module for networking
 sound error detecting
  ****************************************************/
 
@@ -248,15 +248,15 @@ void checkParams()
 
 String getParams()
 {
-  File f = LittleFS.open("/playParams.json", "r");
-  if (!f)
+  File file = LittleFS.open("/playParams.json", "r");
+  if (!file)
   {
     USE_SERIAL.println("file open failed");
   }
   else
   {
-    String data = f.readString();
-    USE_SERIAL.print(data);
+    String data = file.readString();
+    file.close();
     return data;
   }
 };
@@ -275,8 +275,6 @@ JsonObject getPlayParams()
   for (int i = 1; i < 24; i++)
   {
     object = doc["playParams"][i];
-    //USE_SERIAL.println("processing:");
-    //serializeJsonPretty(object,USE_SERIAL);
     if (object["hour"] == currentHour)
       break;
   }
@@ -291,8 +289,25 @@ returns the length in seconds of the given tracknumber. If it doesn't know, retu
 */
 int getTrackLength(int tracknumber)
 {
-  return 11;
-  //TODO use a file system file here
+  JsonObject object;
+  File file = LittleFS.open("/trackLengths.json", "r");
+  if (!file)
+  {
+    USE_SERIAL.println("file open failed");
+  }
+  else
+  {
+    String data = file.readString();
+    file.close();
+    deserializeJson(doc, data);
+    for (int i = 1; i < 100; i++)
+    {
+      object = doc["tracklength"][i];
+      if (object["trackNumber"] == tracknumber)
+        break;
+    }
+    return object["length"];
+  }
 }
 
 //TODO rewrite this to give back the message dont print it out, i want to put this message into logs
