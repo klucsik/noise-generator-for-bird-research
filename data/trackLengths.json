@@ -2,15 +2,11 @@
     "tracklength": [
         {
             "trackNumber": 1,
-            "length": 30
+            "length": 261
         },
         {
             "trackNumber": 2,
-            "length": 35
-        },
-        {
-            "trackNumber": 3,
-            "length": 25
+            "length": 116
         }
     ]
 }

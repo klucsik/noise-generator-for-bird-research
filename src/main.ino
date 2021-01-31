@@ -47,8 +47,8 @@ WiFiClient client;
 
 #include "LittleFS.h"
 
-DynamicJsonDocument doc(3500);
 
+int volume = 10;
 /**********************************************
              MP3 player functions
 
@@ -71,7 +71,7 @@ boolean startMp3(Stream &softSerial)
 
     // TODO: try to determine cause, and return false
   }
-  myDFPlayer.volume(15); //Set volume value. From 0 to 30
+
   return true;
 }
 
@@ -204,11 +204,20 @@ TODO
 */
 void stopGSM(){};
 
+String getBatteryVoltage()
+{
+  //TODO
+  return "666";
+}
+
 /*
-TODO
 reports data to the spreadsheet server
 */
-void runHourlyReport(){};
+void runHourlyReport()
+{
+
+  String resp = GETTask("https://script.google.com/macros/s/" + GScriptId + "/exec?deviceId=" + ESP.getChipId() + "&batteryVoltage=" + getBatteryVoltage());
+};
 
 int paramVersionHere = -2;
 
@@ -266,10 +275,12 @@ returns the object for the current hours play parameters (which tracks, pause ti
 */
 JsonObject getPlayParams()
 {
+  DynamicJsonDocument doc(5000);
   int currentHour = hour(); //TODO: get time from the GSM module
   deserializeJson(doc, getParams());
   JsonObject object;
   paramVersionHere = doc["paramVersion"] | -1;
+  volume = doc["vol"] | 15;
   USE_SERIAL.println("this hour is: " + String(currentHour));
 
   for (int i = 1; i < 24; i++)
@@ -289,7 +300,8 @@ returns the length in seconds of the given tracknumber. If it doesn't know, retu
 */
 int getTrackLength(int tracknumber)
 {
-  JsonObject object;
+
+  JsonObject lengthObject;
   File file = LittleFS.open("/trackLengths.json", "r");
   if (!file)
   {
@@ -299,14 +311,19 @@ int getTrackLength(int tracknumber)
   {
     String data = file.readString();
     file.close();
-    deserializeJson(doc, data);
-    for (int i = 1; i < 100; i++)
+    DynamicJsonDocument docPuffer(1000);
+    deserializeJson(docPuffer, data);
+    for (int i = 0; i < 100; i++)
     {
-      object = doc["tracklength"][i];
-      if (object["trackNumber"] == tracknumber)
+      lengthObject = docPuffer["tracklength"][i];
+      //USE_SERIAL.println("Processing tracklength record:" );
+      //serializeJsonPretty(object,USE_SERIAL);
+      if (lengthObject["trackNumber"] == tracknumber)
         break;
     }
-    return object["length"];
+    //USE_SERIAL.println("tracklength obatined: ");
+    //serializeJsonPretty(object["length"],USE_SERIAL);
+    return lengthObject["length"];
   }
 }
 
@@ -629,8 +646,8 @@ void setup()
   WiFiManager wifiManager;
   wifiManager.setTimeout(300);
   wifiManager.autoConnect("birdnoise_config_accesspoint");
-  delay(3000); //give somte time for the Wifi connection
-  //UNCOMMENTME updateFunc(name, ver); //checking update
+  delay(3000);           //give somte time for the Wifi connection
+  updateFunc(name, ver); //checking update
 
   Serial.println(F("Initializing DFPlayer ... (May take 3~5 seconds)"));
   startMp3(mySoftwareSerial);
@@ -638,14 +655,18 @@ void setup()
 
   if (ESP.getResetReason() == "External System")
   { //kézi újraindításnál
+  Serial.println("Showing of sound skills for humans");
+    myDFPlayer.volume(volume);
     myDFPlayer.play(1);
-    delay(1000);
+    delay(3000);
+    myDFPlayer.stop();
   }
 
   Serial.println(F("DFPlayer Mini online."));
   syncClock();
   LittleFS.begin();
   checkParams();
+  String resp = GETTask("https://script.google.com/macros/s/" + GScriptId + "/exec?deviceId=" + ESP.getChipId() + "&batteryVoltage=" + getBatteryVoltage() + "&startUp=1");
 }
 
 void loop()
@@ -685,13 +706,15 @@ void loop()
 
   for (int i = 0; i < thisHourParams["tracks"].size(); i++)
   {
-    startMp3(mySoftwareSerial);
+    //startMp3(mySoftwareSerial); //Ettől recseg
     int currentTrack = thisHourParams["tracks"][i];
     int minT = thisHourParams["minT"];
     int maxT = thisHourParams["maxT"];
-    Serial.println("play track:" + String(currentTrack) + " for secs: " + getTrackLength(currentTrack));
+    int tracklength = getTrackLength(currentTrack);
+    Serial.println("play track: " + String(currentTrack) + " for secs: " + tracklength);
+    myDFPlayer.volume(volume);
     myDFPlayer.play(currentTrack);
-    delay(getTrackLength(currentTrack) * 1000 + 5000); //wait until the end of track and 5 more secs to be sure
+    delay(tracklength * 1000 + 5000); //wait until the end of track and 5 more secs to be sure
     //TODO a tracklength 10edénél rámérni hogy megy-e
     Serial.print(F("DFplayer state: "));
     Serial.println(myDFPlayer.readState()); //determine stop
@@ -699,7 +722,7 @@ void loop()
     {
       printDetail(myDFPlayer.readType(), myDFPlayer.read()); //Print the detail message from DFPlayer to handle different errors and states.
     }
-    stopMp3();
+    //stopMp3();
     //calculate pause between tracks:
     long calculatedDelay = random(minT, maxT) * 1000;
     Serial.println("pause play for secs: " + String(calculatedDelay / 1000));
