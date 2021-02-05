@@ -47,7 +47,6 @@ WiFiClient client;
 
 #include "LittleFS.h"
 
-
 int volume = 10;
 /**********************************************
              MP3 player functions
@@ -142,7 +141,7 @@ time_t getNtpTime()
 
   while (Udp.parsePacket() > 0)
     ; // discard any previously received packets
-  Serial.println("Transmit NTP Request");
+  Serial.println(F("Transmit NTP Request"));
   // get a random server from the pool
   WiFi.hostByName(ntpServerName, ntpServerIP);
   Serial.print(ntpServerName);
@@ -155,7 +154,7 @@ time_t getNtpTime()
     int size = Udp.parsePacket();
     if (size >= NTP_PACKET_SIZE)
     {
-      Serial.println("Receive NTP Response");
+      Serial.println(F("Receive NTP Response"));
       Udp.read(packetBuffer, NTP_PACKET_SIZE); // read packet into the buffer
       unsigned long secsSince1900;
       // convert four bytes starting at location 40 to a long integer
@@ -166,7 +165,7 @@ time_t getNtpTime()
       return secsSince1900 - 2208988800UL + timeZone * SECS_PER_HOUR;
     }
   }
-  Serial.println("No NTP Response :-(");
+  Serial.println(F("No NTP Response :-("));
   return 0; // return 0 if unable to get the time
 }
 
@@ -224,16 +223,16 @@ int paramVersionHere = -2;
 /*
 checks if the daily paramteres need an update
 */
-void checkParams()
+void syncParams()
 {
   String resp = GETTask("https://script.google.com/macros/s/" + GScriptId + "/exec?deviceId=" + ESP.getChipId() + "&paramVersion=" + String(paramVersionHere));
-  if (resp.indexOf("playParams") != -1)
+  if (resp.indexOf(F("playParams")) != -1)
   {
     //save to file
-    File file = LittleFS.open("/playParams.json", "w");
+    File file = LittleFS.open(F("/playParams.json"), "w");
     if (!file)
     {
-      USE_SERIAL.println("file open failed");
+      USE_SERIAL.println(F("file open failed"));
     }
     else
     {
@@ -242,16 +241,22 @@ void checkParams()
 
       if (bytesWritten > 0)
       {
-        Serial.println("File was written ");
+        Serial.println(F("File was written "));
         Serial.println(bytesWritten);
       }
       else
       {
-        Serial.println("File write failed");
+        Serial.println(F("File write failed"));
       }
 
       file.close();
     }
+    //send an acknowledge back to the sheet, that we are refreshed
+    DynamicJsonDocument doc(5000);
+    deserializeJson(doc, getParams());
+    JsonObject object;
+    paramVersionHere = doc["paramVersion"] | -1;
+    GETTask("https://script.google.com/macros/s/" + GScriptId + "/exec?deviceId=" + ESP.getChipId() + "&paramVersion=" + String(paramVersionHere));
   }
 };
 
@@ -273,9 +278,11 @@ String getParams()
 /*
 returns the object for the current hours play parameters (which tracks, pause times between tracks) from the global json object
 */
+DynamicJsonDocument doc(5000); //8knál már nem mennek a get requestek
 JsonObject getPlayParams()
 {
-  DynamicJsonDocument doc(5000);
+  Serial.println(F("Getplayparams"));
+
   int currentHour = hour(); //TODO: get time from the GSM module
   deserializeJson(doc, getParams());
   JsonObject object;
@@ -283,16 +290,53 @@ JsonObject getPlayParams()
   volume = doc["vol"] | 15;
   USE_SERIAL.println("this hour is: " + String(currentHour));
 
-  for (int i = 1; i < 24; i++)
+  for (int i = 0; i < 24; i++)
   {
     object = doc["playParams"][i];
     if (object["hour"] == currentHour)
       break;
   }
 
-  USE_SERIAL.println("hourly config:");
+  USE_SERIAL.println(F("hourly config:"));
   serializeJsonPretty(object, USE_SERIAL);
+Serial.println();
   return object;
+}
+
+void syncTrackLength()
+{
+  Serial.println(F("syncing tracklengths"));
+  String resp = GETTask("https://script.google.com/macros/s/" + GScriptId + "/exec?trackLengths=1");
+  if (resp.indexOf(F("tracklengths")) != -1)
+  {
+    //save to file
+    File file = LittleFS.open(F("/trackLengths.json"), "w");
+    if (!file)
+    {
+      USE_SERIAL.println(F("file open failed"));
+    }
+    else
+    {
+
+      int bytesWritten = file.print(resp);
+
+      if (bytesWritten > 0)
+      {
+        Serial.println(F("File was written "));
+        Serial.println(bytesWritten);
+      }
+      else
+      {
+        Serial.println(F("File write failed"));
+      }
+
+      file.close();
+    }
+  }
+  else
+  {
+    Serial.println(F("response invalid!"));
+  }
 }
 
 /*
@@ -300,29 +344,31 @@ returns the length in seconds of the given tracknumber. If it doesn't know, retu
 */
 int getTrackLength(int tracknumber)
 {
-
   JsonObject lengthObject;
-  File file = LittleFS.open("/trackLengths.json", "r");
+  File file = LittleFS.open(F("/trackLengths.json"), "r");
   if (!file)
   {
-    USE_SERIAL.println("file open failed");
+    USE_SERIAL.println(F("file open failed"));
   }
   else
   {
     String data = file.readString();
     file.close();
-    DynamicJsonDocument docPuffer(1000);
+    //Serial.println(data);
+    DynamicJsonDocument docPuffer(4000);
     deserializeJson(docPuffer, data);
+
     for (int i = 0; i < 100; i++)
     {
-      lengthObject = docPuffer["tracklength"][i];
+      lengthObject = docPuffer["tracklengths"][i];
       //USE_SERIAL.println("Processing tracklength record:" );
-      //serializeJsonPretty(object,USE_SERIAL);
+      //serializeJsonPretty(lengthObject,USE_SERIAL);
       if (lengthObject["trackNumber"] == tracknumber)
         break;
     }
-    //USE_SERIAL.println("tracklength obatined: ");
-    //serializeJsonPretty(object["length"],USE_SERIAL);
+    USE_SERIAL.println("tracklength obtained: ");
+    serializeJsonPretty(lengthObject["length"], USE_SERIAL);
+    Serial.println();
     return lengthObject["length"];
   }
 }
@@ -636,11 +682,11 @@ void setup()
   mySoftwareSerial.begin(9600);
   Serial.begin(115200);
   Serial.println();
-  Serial.print("name: ");
-  Serial.println(name);
-  Serial.print(" ver: ");
+  Serial.print(F("name: "));
+  Serial.print(name);
+  Serial.print(F(" ver: "));
   Serial.print(ver);
-  Serial.print(" deviceID: ");
+  Serial.print(F(" deviceID: "));
   Serial.println(ESP.getChipId());
 
   WiFiManager wifiManager;
@@ -652,26 +698,27 @@ void setup()
   Serial.println(F("Initializing DFPlayer ... (May take 3~5 seconds)"));
   startMp3(mySoftwareSerial);
   //TODO:handle error if returns false
-
+  LittleFS.begin();
   if (ESP.getResetReason() == "External System")
   { //kézi újraindításnál
-  Serial.println("Showing of sound skills for humans");
+    Serial.println(F("Showing of sound skills for humans"));
     myDFPlayer.volume(volume);
     myDFPlayer.play(1);
     delay(3000);
     myDFPlayer.stop();
+    syncTrackLength();    
   }
-
   Serial.println(F("DFPlayer Mini online."));
   syncClock();
-  LittleFS.begin();
-  checkParams();
-  String resp = GETTask("https://script.google.com/macros/s/" + GScriptId + "/exec?deviceId=" + ESP.getChipId() + "&batteryVoltage=" + getBatteryVoltage() + "&startUp=1");
+
+  syncParams();
+  GETTask("https://script.google.com/macros/s/" + GScriptId + "/exec?deviceId=" + ESP.getChipId() + "&batteryVoltage=" + getBatteryVoltage() + "&startUp=1");
 }
 
 void loop()
 {
   Serial.println(F("begining of main loop"));
+  delay(100);
 
   if (minute() < 5)
   {
@@ -681,7 +728,7 @@ void loop()
       syncClock();
       startGSM();
       runHourlyReport();
-      checkParams();
+      syncParams();
       stopGSM();
       hourlySetupFlag = true;
     }
@@ -694,7 +741,11 @@ void loop()
   //main business logic
 
   JsonObject thisHourParams = getPlayParams();
-  if (thisHourParams.isNull())
+
+  int tracksize =thisHourParams["tracks"].size();
+  Serial.println("number of tracks in this hour: " + String(tracksize));
+  //TODO ha nincs beállítás go to sleep
+  if (tracksize<1)
   {
     long sleeptime = (55 - minute()) * 60 * 1000 * 1000;
     if (sleeptime > 0)
@@ -703,9 +754,10 @@ void loop()
       ESP.deepSleep(sleeptime);
     }
   }
-
+  
   for (int i = 0; i < thisHourParams["tracks"].size(); i++)
   {
+    Serial.printf("free heap size: %u\n", ESP.getFreeHeap());
     //startMp3(mySoftwareSerial); //Ettől recseg
     int currentTrack = thisHourParams["tracks"][i];
     int minT = thisHourParams["minT"];
@@ -727,5 +779,6 @@ void loop()
     long calculatedDelay = random(minT, maxT) * 1000;
     Serial.println("pause play for secs: " + String(calculatedDelay / 1000));
     delay(calculatedDelay);
+    
   }
 }
