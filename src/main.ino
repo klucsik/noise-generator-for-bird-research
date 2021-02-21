@@ -298,7 +298,7 @@ JsonObject getPlayParams()
 
   USE_SERIAL.println(F("hourly config:"));
   serializeJsonPretty(object, USE_SERIAL);
-Serial.println();
+  Serial.println();
   return object;
 }
 
@@ -700,19 +700,21 @@ void setup()
   LittleFS.begin();
   if (ESP.getResetReason() == "External System")
   { //kézi újraindításnál
+    syncTrackLength();
+    delay(1000);
+    syncParams();
     Serial.println(F("Showing of sound skills for humans"));
     myDFPlayer.volume(volume);
     myDFPlayer.play(1);
     delay(3000);
     myDFPlayer.stop();
-    syncTrackLength();
+
     syncTrackLength(); //tuti, ami biztos
-    syncParams();
-    syncParams(); //to update the version in the excel in the first run  
+    delay(1000);
+    syncParams(); //to update the version in the excel in the first run
   }
   Serial.println(F("DFPlayer Mini online."));
   syncClock();
-
 
   GETTask("https://script.google.com/macros/s/" + GScriptId + "/exec?deviceId=" + ESP.getChipId() + "&batteryVoltage=" + getBatteryVoltage() + "&startUp=1");
 }
@@ -744,10 +746,10 @@ void loop()
 
   JsonObject thisHourParams = getPlayParams();
 
-  int tracksize =thisHourParams["tracks"].size();
+  int tracksize = thisHourParams["tracks"].size();
   Serial.println("number of tracks in this hour: " + String(tracksize));
   //TODO ha nincs beállítás go to sleep
-  if (tracksize<1)
+  if (tracksize < 1)
   {
     long sleeptime = (55 - minute()) * 60 * 1000 * 1000;
     if (sleeptime > 0)
@@ -756,12 +758,12 @@ void loop()
       ESP.deepSleep(sleeptime);
     }
   }
-  
+
   for (int i = 0; i < tracksize; i++)
   {
     Serial.printf("free heap size: %u\n", ESP.getFreeHeap());
     //startMp3(mySoftwareSerial); //Ettől recseg
-    int currentTrack = thisHourParams["tracks"][random(0,tracksize)];
+    int currentTrack = thisHourParams["tracks"][random(0, tracksize)];
     int minT = thisHourParams["minT"];
     int maxT = thisHourParams["maxT"];
     int tracklength = getTrackLength(currentTrack);
@@ -781,6 +783,5 @@ void loop()
     long calculatedDelay = random(minT, maxT) * 1000;
     Serial.println("pause play for secs: " + String(calculatedDelay / 1000));
     delay(calculatedDelay);
-    
   }
 }
