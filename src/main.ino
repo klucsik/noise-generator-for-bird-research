@@ -16,11 +16,10 @@ Config conf;
 Secrets sec;
 
 static String name = conf.name;
-static String ver = "0_4";
+static String ver = "0_5";
 
 const String update_server = sec.update_server;   //at this is url is the python flask update server, which I wrote
 const String GScriptId = sec.gID;                 //This is the secret ID of the Google script app which connects to the Google Spreadsheets
-const String data_sheet = conf.data_sheet;        //name of the sheet on the Spreadsheet where the data will be logged
 const String log_sheet = conf.log_sheet;          //name of the sheet on the Spreadsheet where the events will be logged
 const String discord_chanel = sec.discord_chanel; //a discord channel webhook, we send startup messages there
 
@@ -100,6 +99,7 @@ unsigned int localPort = 8888;
 void syncClock()
 {
   USE_SERIAL.println(F("Synchronizing inner clock..."));
+  GsheetPost(log_sheet, "INFO;Synchronizing inner clock...");
   Udp.begin(localPort);
   setSyncProvider(getNtpTime);
   setSyncInterval(1);
@@ -225,6 +225,7 @@ checks if the daily paramteres need an update
 */
 void syncParams()
 {
+    GsheetPost(log_sheet, "INFO;Syncing Params");
   String resp = GETTask("https://script.google.com/macros/s/" + GScriptId + "/exec?deviceId=" + ESP.getChipId() + "&paramVersion=" + String(paramVersionHere));
   if (resp.indexOf(F("playParams")) != -1)
   {
@@ -304,7 +305,8 @@ JsonObject getPlayParams()
 
 void syncTrackLength()
 {
-  Serial.println(F("syncing tracklengths"));
+  GsheetPost(log_sheet, "INFO;Syncing tracklengths...");
+  Serial.println(F("Syncing tracklengths"));
   String resp = GETTask("https://script.google.com/macros/s/" + GScriptId + "/exec?trackLengths=1");
   if (resp.indexOf(F("tracklengths")) != -1)
   {
@@ -313,6 +315,7 @@ void syncTrackLength()
     if (!file)
     {
       USE_SERIAL.println(F("file open failed"));
+      GsheetPost(log_sheet, "ERROR;file open failed!");
     }
     else
     {
@@ -323,10 +326,12 @@ void syncTrackLength()
       {
         Serial.println(F("File was written "));
         Serial.println(bytesWritten);
+        GsheetPost(log_sheet, "INFO;File was written with bytes: " + String(bytesWritten));
       }
       else
       {
         Serial.println(F("File write failed"));
+        GsheetPost(log_sheet, "ERROR;File write failed!");
       }
 
       file.close();
@@ -335,6 +340,7 @@ void syncTrackLength()
   else
   {
     Serial.println(F("response invalid!"));
+    GsheetPost(log_sheet, "ERROR;Response invalid!");
   }
 }
 
@@ -554,6 +560,7 @@ void update_error(int err)
 
 void GsheetPost(String sheet_name, String datastring)
 {
+  datastring = String(ESP.getChipId()) + ";" + datastring; //add ID as first field
   USE_SERIAL.println(F("POST to spreadsheet:"));
   String url = String(F("https://script.google.com/macros/s/")) + String(GScriptId) + "/exec";
   String payload = String("{\"command\": \"appendRow\", \  \"sheet_name\": \"") + sheet_name + "\", \ \"values\": " + "\"" + datastring + "\"}";
@@ -694,12 +701,15 @@ void setup()
   delay(3000);           //give somte time for the Wifi connection
   updateFunc(name, ver); //checking update
 
+  GsheetPost(log_sheet, "INFO;Startup, setup...");
+
   Serial.println(F("Initializing DFPlayer ... (May take 3~5 seconds)"));
   startMp3(mySoftwareSerial);
   //TODO:handle error if returns false
   LittleFS.begin();
   if (ESP.getResetReason() == "External System")
   { //kézi újraindításnál
+    GsheetPost(log_sheet, "INFO;Manual reset");
     syncTrackLength();
     delay(1000);
     syncParams();
@@ -717,6 +727,7 @@ void setup()
   syncClock();
 
   GETTask("https://script.google.com/macros/s/" + GScriptId + "/exec?deviceId=" + ESP.getChipId() + "&batteryVoltage=" + getBatteryVoltage() + "&startUp=1");
+  GsheetPost(log_sheet, "INFO;Setup finished");
 }
 
 void loop()
@@ -729,6 +740,7 @@ void loop()
     if (!hourlySetupFlag)
     { //just once do the hourly stuff
       Serial.println(F("First minutes of hour, do hourly stuff:"));
+      GsheetPost(log_sheet, "INFO;First minutes of hour, do hourly stuff");
       syncClock();
       startGSM();
       runHourlyReport();
@@ -755,6 +767,7 @@ void loop()
     if (sleeptime > 0)
     {
       Serial.println("going to deepsleep for:" + String(sleeptime));
+      GsheetPost(log_sheet, "INFO;No tracks to paly now, going to deepsleep for:" + String(sleeptime));
       ESP.deepSleep(sleeptime);
     }
   }
@@ -768,6 +781,7 @@ void loop()
     int maxT = thisHourParams["maxT"];
     int tracklength = getTrackLength(currentTrack);
     Serial.println("play track: " + String(currentTrack) + " for secs: " + tracklength);
+    GsheetPost(log_sheet, "INFO;Play track: " + String(currentTrack) + " for secs: " + tracklength);
     myDFPlayer.volume(volume);
     myDFPlayer.play(currentTrack);
     delay(tracklength * 1000 + 5000); //wait until the end of track and 5 more secs to be sure
@@ -782,6 +796,7 @@ void loop()
     //calculate pause between tracks:
     long calculatedDelay = random(minT, maxT) * 1000;
     Serial.println("pause play for secs: " + String(calculatedDelay / 1000));
+    GsheetPost(log_sheet, "INFO;Pause play for secs: " + String(calculatedDelay / 1000));
     delay(calculatedDelay);
   }
 }
