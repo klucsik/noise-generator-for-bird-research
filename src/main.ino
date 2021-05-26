@@ -3,8 +3,6 @@ Noise generator for birds
 Written by Krisztián Pál Klucsik
 
 TODOs:
-webupdating of the tracklengths file
-logging
 error handling (message to discord)
 GSM module for networking
 sound error detecting
@@ -16,7 +14,7 @@ Config conf;
 Secrets sec;
 
 static String name = conf.name;
-static String ver = "0_5";
+static String ver = "0_6";
 
 const String update_server = sec.update_server;   //at this is url is the python flask update server, which I wrote
 const String GScriptId = sec.gID;                 //This is the secret ID of the Google script app which connects to the Google Spreadsheets
@@ -234,6 +232,7 @@ void syncParams()
     if (!file)
     {
       USE_SERIAL.println(F("file open failed"));
+      GsheetPost(log_sheet, "ERROR;file open failed!");
     }
     else
     {
@@ -244,10 +243,13 @@ void syncParams()
       {
         Serial.println(F("File was written "));
         Serial.println(bytesWritten);
+        GsheetPost(log_sheet, "INFO;File was written with bytes: " + String(bytesWritten));
+        
       }
       else
       {
         Serial.println(F("File write failed"));
+        GsheetPost(log_sheet, "ERROR;File write failed!");
       }
 
       file.close();
@@ -745,6 +747,7 @@ void loop()
       startGSM();
       runHourlyReport();
       syncParams();
+      syncTrackLength();
       stopGSM();
       hourlySetupFlag = true;
     }
