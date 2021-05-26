@@ -704,7 +704,7 @@ void setup()
   delay(3000);           //give somte time for the Wifi connection
   updateFunc(name, ver); //checking update
 
-  GsheetPost(log_sheet,"INFO;Startup" + name + ver + ", setup...");
+  GsheetPost(log_sheet,"INFO;Startup " + name +" "+ ver + ", setup...");
 
   Serial.println(F("Initializing DFPlayer ... (May take 3~5 seconds)"));
   startMp3(mySoftwareSerial);
