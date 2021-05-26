@@ -453,6 +453,7 @@ boolean hourlySetupFlag = false;
 ***********************************************/
 void updateFunc(String Name, String Version) //TODO: documentation
 {
+  GsheetPost(log_sheet, "INFO;Looking for software update");
   HTTPClient http;
 
   String url = update_server + "/check?" + "name=" + Name + "&ver=" + Version;
@@ -703,7 +704,7 @@ void setup()
   delay(3000);           //give somte time for the Wifi connection
   updateFunc(name, ver); //checking update
 
-  GsheetPost(log_sheet, "INFO;Startup, setup...");
+  GsheetPost(log_sheet,"INFO;Startup" + name + ver + ", setup...");
 
   Serial.println(F("Initializing DFPlayer ... (May take 3~5 seconds)"));
   startMp3(mySoftwareSerial);
@@ -742,9 +743,10 @@ void loop()
     if (!hourlySetupFlag)
     { //just once do the hourly stuff
       Serial.println(F("First minutes of hour, do hourly stuff:"));
+      startGSM();
       GsheetPost(log_sheet, "INFO;First minutes of hour, do hourly stuff");
       syncClock();
-      startGSM();
+      updateFunc(name, ver); //checking update
       runHourlyReport();
       syncParams();
       syncTrackLength();
