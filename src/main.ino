@@ -260,6 +260,10 @@ void syncParams()
     JsonObject object;
     paramVersionHere = doc["paramVersion"] | -1;
   }
+  {
+    Serial.println(F("response invalid!"));
+    GsheetPost(log_sheet, "ERROR;Response invalid!");
+  }
 };
 
 String getParams()
@@ -749,6 +753,7 @@ void loop()
       updateFunc(name, ver); //checking update
       runHourlyReport();
       syncParams();
+      delay(1000);
       syncTrackLength();
       stopGSM();
       hourlySetupFlag = true;
@@ -789,10 +794,10 @@ void loop()
     GsheetPost(log_sheet, "INFO;Play track: " + String(currentTrack) + " for secs: " + tracklength);
     myDFPlayer.volume(volume);
     myDFPlayer.play(currentTrack);
-    delay(tracklength * 1000 + 5000); //wait until the end of track and 5 more secs to be sure
-    //TODO a tracklength 10edénél rámérni hogy megy-e
-    Serial.print(F("DFplayer state: "));
-    Serial.println(myDFPlayer.readState()); //determine stop
+    delay(tracklength/2 * 1000); //wait until the half of the track
+    GsheetPost(log_sheet, "INFO;dfplayer status at halftime of the track: "+ String(myDFPlayer.readState()));
+    delay(tracklength/2 * 1000); //wait until the end of the track
+
     if (myDFPlayer.available())
     {
       printDetail(myDFPlayer.readType(), myDFPlayer.read()); //Print the detail message from DFPlayer to handle different errors and states.
