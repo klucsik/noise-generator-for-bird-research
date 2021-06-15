@@ -14,7 +14,7 @@ Config conf;
 Secrets sec;
 
 static String name = conf.name;
-static String ver = "0_6";
+static String ver = "0_7";
 
 const String update_server = sec.update_server;   //at this is url is the python flask update server, which I wrote
 const String GScriptId = sec.gID;                 //This is the secret ID of the Google script app which connects to the Google Spreadsheets
