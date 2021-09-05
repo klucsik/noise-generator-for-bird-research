@@ -572,7 +572,7 @@ void update_error(int err)
 void logPost(String log_level, String message){
     //TODO ifdef a logging definedból
     USE_SERIAL.println(F("making log:"));
-    String url = server_url+"/deviceLog" ;
+    String url = server_url+"/deviceLog/save" ;
     String payload = "{\"chipId\"=" + ESP.getChipId() + String(", \  \"logLevel\"=\"")+ log_level +String("\", \ \"message\"=\"")+message+ "\"}";
     //String payload = "potato";
     USE_SERIAL.println(POSTTask(url, payload));
