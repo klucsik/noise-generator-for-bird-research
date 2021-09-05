@@ -53,7 +53,7 @@ int volume = 10;
 ***********************************************/
 SoftwareSerial mySoftwareSerial(mp3RxPin, mp3TxPin); // RX, TX
 DFRobotDFPlayerMini myDFPlayer;
-void printDetail(uint8_t type, int value);
+String printDetail(uint8_t type, int value);
 
 boolean startMp3(Stream &softSerial)
 {
@@ -225,7 +225,7 @@ checks if the daily paramteres need an update
 */
 void syncParams()
 {
-    logPost("INFO", "Syncing Params");
+  logPost("INFO", "Syncing Params");
   String resp = GETTask(server_url + "/devicePlayParamSelector/selectSlimPlayParam?chipId=" + ESP.getChipId() + "&paramVersion=" + String(paramVersionHere));
   if (resp.indexOf(F("playParams")) != -1)
   {
@@ -245,13 +245,12 @@ void syncParams()
       {
         Serial.println(F("File was written "));
         Serial.println(bytesWritten);
-         logPost("INFO", "File was written with bytes: " + String(bytesWritten));
-        
+        logPost("INFO", "File was written with bytes: " + String(bytesWritten));
       }
       else
       {
         Serial.println(F("File write failed"));
-       logPost("ERROR", "File write failed!");
+        logPost("ERROR", "File write failed!");
       }
 
       file.close();
@@ -386,61 +385,60 @@ int getTrackLength(int tracknumber)
   }
 }
 
-//TODO rewrite this to give back the message dont print it out, i want to put this message into logs
-void printDetail(uint8_t type, int value)
+String printDetail(uint8_t type, int value)
 {
+  String message = "";
+
   switch (type)
   {
   case TimeOut:
-    Serial.println(F("Time Out!"));
+    message = F("Time Out!");
     break;
   case WrongStack:
-    Serial.println(F("Stack Wrong!"));
+    message = F("Stack Wrong!");
     break;
   case DFPlayerCardInserted:
-    Serial.println(F("Card Inserted!"));
+    message = F("Card Inserted!");
     break;
   case DFPlayerCardRemoved:
-    Serial.println(F("Card Removed!"));
+    message = F("Card Removed!");
     break;
   case DFPlayerCardOnline:
-    Serial.println(F("Card Online!"));
+    message = F("Card Online!");
     break;
   case DFPlayerUSBInserted:
-    Serial.println("USB Inserted!");
+    message = F("USB Inserted!");
     break;
   case DFPlayerUSBRemoved:
-    Serial.println("USB Removed!");
+    message = F("USB Removed!");
     break;
   case DFPlayerPlayFinished:
-    Serial.print(F("Number:"));
-    Serial.print(value);
-    Serial.println(F(" Play Finished!"));
+    message = "Number: " + String(value) + " Play Finished!";
     break;
   case DFPlayerError:
-    Serial.print(F("DFPlayerError:"));
+    message = F("DFPlayerError:");
     switch (value)
     {
     case Busy:
-      Serial.println(F("Card not found"));
+      message = message + F("Card not found");
       break;
     case Sleeping:
-      Serial.println(F("Sleeping"));
+      message = message + F("Sleeping");
       break;
     case SerialWrongStack:
-      Serial.println(F("Get Wrong Stack"));
+      message = message + F("Get Wrong Stack");
       break;
     case CheckSumNotMatch:
-      Serial.println(F("Check Sum Not Match"));
+      message = message + F("Check Sum Not Match");
       break;
     case FileIndexOut:
-      Serial.println(F("File Index Out of Bound"));
+      message = message + F("File Index Out of Bound");
       break;
     case FileMismatch:
-      Serial.println(F("Cannot Find File"));
+      message = message + F("Cannot Find File");
       break;
     case Advertise:
-      Serial.println(F("In Advertise"));
+      message = message + F("In Advertise");
       break;
     default:
       break;
@@ -449,6 +447,20 @@ void printDetail(uint8_t type, int value)
   default:
     break;
   }
+}
+
+void logDFPlayerMessage()
+{
+  if (myDFPlayer.available())
+  {
+    String loglevel = "INFO";
+    if (myDFPlayer.readType() == DFPlayerError)
+    {
+      loglevel = "ERROR";
+    }
+    logPost(loglevel, "dfplayer status: " +String(myDFPlayer.readState()) + ", message if available: " + printDetail(myDFPlayer.readType(), myDFPlayer.read()));
+  }
+
 }
 
 boolean hourlySetupFlag = false;
@@ -567,21 +579,19 @@ void update_error(int err)
 #include <ESP8266httpUpdate.h>
 #include <ESP8266HTTPClient.h>
 
-
-
-void logPost(String log_level, String message){
-    //TODO ifdef a logging definedból
-    USE_SERIAL.println(F("making log:"));
-    String url = server_url+"/deviceLog/save" ;
-    String payload = "{\"chipId\"=" + ESP.getChipId() + String(", \  \"logLevel\"=\"")+ log_level +String("\", \ \"message\"=\"")+message+ "\"}";
-    //String payload = "potato";
-    USE_SERIAL.println(POSTTask(url, payload));
+void logPost(String log_level, String message)
+{
+  //TODO ifdef a logging definedból
+  USE_SERIAL.println("log --- " + log_level + "; " + message);
+  String url = server_url + "/deviceLog/save";
+  String payload = "{\"chipId\"=" + ESP.getChipId() + String(", \  \"logLevel\"=\"") + log_level + String("\", \ \"message\"=\"") + message + "\"}";
+  //String payload = "potato";
+  USE_SERIAL.println(POSTTask(url, payload));
 }
 
-void discordPost(String message)
-{
-//TODO
- /* String payload = "{\"content\": \"" + message + "\"}";
+void discordPost(String message){
+    //TODO
+    /* String payload = "{\"content\": \"" + message + "\"}";
   String url = discord_chanel;
   USE_SERIAL.println(POSTTask(url, payload));*/
 };
@@ -709,12 +719,13 @@ void setup()
   delay(3000);           //give somte time for the Wifi connection
   updateFunc(name, ver); //checking update
 
-  logPost("INFO", "Startup " + name +" "+ ver + ", setup...");
+  logPost("INFO", "Startup " + name + " " + ver + ", setup...");
 
-  Serial.println(F("Initializing DFPlayer ... (May take 3~5 seconds)"));
   startMp3(mySoftwareSerial);
   //TODO:handle error if returns false
+
   LittleFS.begin();
+
   if (ESP.getResetReason() == "External System")
   { //kézi újraindításnál
     logPost("INFO", "Manual reset");
@@ -729,7 +740,7 @@ void setup()
 
     syncTrackLength(); //tuti, ami biztos
     delay(1000);
-    syncParams(); //to update the version in the excel in the first run
+    syncParams();
   }
   Serial.println(F("DFPlayer Mini online."));
   syncClock();
@@ -746,11 +757,10 @@ void loop()
 
   if (minute() < 5)
   {
-    if (!hourlySetupFlag)
-    { //just once do the hourly stuff
-      Serial.println(F("First minutes of hour, do hourly stuff:"));
+    if (!hourlySetupFlag) //just once do the hourly stuff
+    { 
       startGSM();
-       logPost("INFO", "First minutes of hour, do hourly stuff");
+      logPost("INFO", "First minutes of hour, do hourly stuff");
       syncClock();
       updateFunc(name, ver); //checking update
       runHourlyReport();
@@ -760,9 +770,7 @@ void loop()
       stopGSM();
       hourlySetupFlag = true;
     }
-  }
-  else
-  {
+  } else {
     hourlySetupFlag = false;
   }
 
@@ -779,7 +787,7 @@ void loop()
     if (sleeptime > 0)
     {
       Serial.println("going to deepsleep for:" + String(sleeptime));
-      logPost("INFO", "No tracks to paly now, going to deepsleep for:" + String(sleeptime));
+      logPost("INFO", "No tracks to paly now, going to deepsleep for minutes:" + String(55 - minute()));
       ESP.deepSleep(sleeptime);
     }
   }
@@ -792,22 +800,16 @@ void loop()
     int minT = thisHourParams["minT"];
     int maxT = thisHourParams["maxT"];
     int tracklength = getTrackLength(currentTrack);
-    Serial.println("play track: " + String(currentTrack) + " for secs: " + tracklength);
     logPost("INFO", "Play track: " + String(currentTrack) + " for secs: " + tracklength);
     myDFPlayer.volume(volume);
     myDFPlayer.play(currentTrack);
-    delay(tracklength/2 * 1000); //wait until the half of the track
-    logPost("INFO", "dfplayer status at halftime of the track: "+ String(myDFPlayer.readState()));
-    delay(tracklength/2 * 1000); //wait until the end of the track
-
-    if (myDFPlayer.available())
-    {
-      printDetail(myDFPlayer.readType(), myDFPlayer.read()); //Print the detail message from DFPlayer to handle different errors and states.
-    }
+    delay(tracklength / 2 * 1000); //wait until the half of the track
+    logDFPlayerMessage();
+    delay(tracklength / 2 * 1000); //wait until the end of the track
+    logDFPlayerMessage();
     //stopMp3();
     //calculate pause between tracks:
     long calculatedDelay = random(minT, maxT) * 1000;
-    Serial.println("pause play for secs: " + String(calculatedDelay / 1000));
     logPost("INFO", "Pause play for secs: " + String(calculatedDelay / 1000));
     delay(calculatedDelay);
   }
