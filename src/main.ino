@@ -272,7 +272,8 @@ String getParams()
   File file = LittleFS.open("/playParams.json", "r");
   if (!file)
   {
-    USE_SERIAL.println("file open failed");
+    logPost("ERROR","file open failed");
+    return "";
   }
   else
   {
@@ -313,7 +314,6 @@ JsonObject getPlayParams()
 void syncTrackLength()
 {
   logPost("INFO", "Syncing tracklengths...");
-  Serial.println(F("Syncing tracklengths"));
   String resp = GETTask(server_url + "/TrackPageSlim/page");
   if (resp.indexOf(F("tracklengths")) != -1)
   {
@@ -321,7 +321,6 @@ void syncTrackLength()
     File file = LittleFS.open(F("/trackLengths.json"), "w");
     if (!file)
     {
-      USE_SERIAL.println(F("file open failed"));
       logPost("ERROR", "file open failed!");
     }
     else
@@ -331,13 +330,10 @@ void syncTrackLength()
 
       if (bytesWritten > 0)
       {
-        Serial.println(F("File was written "));
-        Serial.println(bytesWritten);
         logPost("INFO", "File was written with bytes: " + String(bytesWritten));
       }
       else
       {
-        Serial.println(F("File write failed"));
         logPost("ERROR", "File write failed!");
       }
 
@@ -346,7 +342,6 @@ void syncTrackLength()
   }
   else
   {
-    Serial.println(F("response invalid!"));
     logPost("ERROR", "Response invalid!");
   }
 }
@@ -360,7 +355,8 @@ int getTrackLength(int tracknumber)
   File file = LittleFS.open(F("/trackLengths.json"), "r");
   if (!file)
   {
-    USE_SERIAL.println(F("file open failed"));
+   logPost("ERROR",F(" tracklength file open failed"));
+   return 120;
   }
   else
   {
@@ -447,6 +443,7 @@ String printDetail(uint8_t type, int value)
   default:
     break;
   }
+  return message;
 }
 
 void logDFPlayerMessage()
@@ -583,8 +580,8 @@ void logPost(String log_level, String message)
 {
   //TODO ifdef a logging definedból
   USE_SERIAL.println("log --- " + log_level + "; " + message);
-  String url = server_url + "/deviceLog/save";
-  String payload = "{\"chipId\"=" + ESP.getChipId() + String(", \  \"logLevel\"=\"") + log_level + String("\", \ \"message\"=\"") + message + "\"}";
+  String url = server_url + "/deviceLog/save?chipId=" + ESP.getChipId();
+  String payload = "{\"logLevel\":\"" + log_level + String("\", \"message\":\"") + message + "\"}";
   //String payload = "potato";
   USE_SERIAL.println(POSTTask(url, payload));
 }
@@ -600,7 +597,6 @@ String GETTask(String url)
 {
   WiFiClient client;
   HTTPClient http;
-  http.setFollowRedirects(true); //this is needed for the Google backend, which always redirects
   if (http.begin(client, url))
   {
     USE_SERIAL.print(F("[HTTPS] GET "));
@@ -611,7 +607,6 @@ String GETTask(String url)
     // httpCode will be negative on error
     if (httpCode > 0)
     {
-      // HTTP header has been send and Server response header has been handled
       USE_SERIAL.printf("[HTTPS] GET... code: %d\n", httpCode);
       if (httpCode == 302)
       {
@@ -619,7 +614,7 @@ String GETTask(String url)
         http.end();
         return redirectUrl;
       }
-      if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY)
+      else
       {
         String payload = http.getString();
         USE_SERIAL.println(payload);
@@ -657,7 +652,7 @@ String POSTTask(String url, String payload)
     USE_SERIAL.print(" --> ");
     USE_SERIAL.println(payload);
     http.addHeader(F("Content-Type"), F("application/json"));
-    http.setFollowRedirects(true);
+
 
     int httpCode = http.POST(payload);
 
@@ -780,13 +775,11 @@ void loop()
 
   int tracksize = thisHourParams["tracks"].size();
   Serial.println("number of tracks in this hour: " + String(tracksize));
-  //TODO ha nincs beállítás go to sleep
   if (tracksize < 1)
   {
-    long sleeptime = (55 - minute()) * 60 * 1000 * 1000;
+    uint64_t sleeptime = (55 - minute()) * 60 * 1000 * 1000;
     if (sleeptime > 0)
     {
-      Serial.println("going to deepsleep for:" + String(sleeptime));
       logPost("INFO", "No tracks to paly now, going to deepsleep for minutes:" + String(55 - minute()));
       ESP.deepSleep(sleeptime);
     }
