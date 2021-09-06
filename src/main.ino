@@ -225,7 +225,7 @@ checks if the daily paramteres need an update
 */
 void syncParams()
 {
-  logPost("INFO", "Syncing Params");
+  logPost("INFO", "Syncing PlayParams, we have dpp here:" + String(paramVersionHere));
   String resp = GETTask(server_url + "/devicePlayParamSelector/selectSlimPlayParam?chipId=" + ESP.getChipId() + "&paramVersion=" + String(paramVersionHere));
   if (resp.indexOf(F("playParams")) != -1)
   {
@@ -245,7 +245,7 @@ void syncParams()
       {
         Serial.println(F("File was written "));
         Serial.println(bytesWritten);
-        logPost("INFO", "File was written with bytes: " + String(bytesWritten));
+        logPost("INFO", "PlayParam file was written with bytes: " + String(bytesWritten));
       }
       else
       {
@@ -260,10 +260,10 @@ void syncParams()
     deserializeJson(doc, getParams());
     JsonObject object;
     paramVersionHere = doc["paramVersion"] | -1;
-  }
+  } else
   {
-    Serial.println(F("response invalid!"));
-    logPost("ERROR", "Response invalid!");
+
+    logPost("ERROR", " playParam response invalid! Response:" + resp);
   }
 };
 
@@ -342,7 +342,7 @@ void syncTrackLength()
   }
   else
   {
-    logPost("ERROR", "Response invalid!");
+    logPost("ERROR", " tracklist response invalid! Response:" + resp);
   }
 }
 
@@ -712,9 +712,11 @@ void setup()
   wifiManager.setTimeout(300);
   wifiManager.autoConnect("birdnoise_config_accesspoint");
   delay(3000);           //give somte time for the Wifi connection
+  logPost("INFO", "STARTUP" + name + " " + ver + ", setup...");
+  
   updateFunc(name, ver); //checking update
 
-  logPost("INFO", "Startup " + name + " " + ver + ", setup...");
+
 
   startMp3(mySoftwareSerial);
   //TODO:handle error if returns false
