@@ -263,7 +263,7 @@ void syncParams()
   } else
   {
 
-    logPost("ERROR", " playParam response invalid! Response:" + resp);
+    logPost("ERROR", " playParam response invalid!");
   }
 };
 
@@ -342,7 +342,7 @@ void syncTrackLength()
   }
   else
   {
-    logPost("ERROR", " tracklist response invalid! Response:" + resp);
+    logPost("ERROR", "tracklist response invalid!");
   }
 }
 
