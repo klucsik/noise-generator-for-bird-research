@@ -783,6 +783,7 @@ void loop()
     if (sleeptime > 0)
     {
       logPost("INFO", "No tracks to paly now, going to deepsleep for minutes:" + String(55 - minute()));
+      stopMp3();
       ESP.deepSleep(sleeptime);
     }
   }
