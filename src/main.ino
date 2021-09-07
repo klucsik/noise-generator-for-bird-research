@@ -255,7 +255,7 @@ void syncParams()
 
       file.close();
     }
-    //send an acknowledge back to the sheet, that we are refreshed
+    
     DynamicJsonDocument doc(5000);
     deserializeJson(doc, getParams());
     JsonObject object;
@@ -263,7 +263,7 @@ void syncParams()
   } else
   {
 
-    logPost("ERROR", " playParam response invalid!");
+    logPost("ERROR", "playParam response invalid!");
   }
 };
 
@@ -321,7 +321,7 @@ void syncTrackLength()
     File file = LittleFS.open(F("/trackLengths.json"), "w");
     if (!file)
     {
-      logPost("ERROR", "file open failed!");
+      logPost("ERROR", "tracklength file open failed!");
     }
     else
     {
@@ -330,11 +330,11 @@ void syncTrackLength()
 
       if (bytesWritten > 0)
       {
-        logPost("INFO", "File was written with bytes: " + String(bytesWritten));
+        logPost("INFO", "tracklength file was written with bytes: " + String(bytesWritten));
       }
       else
       {
-        logPost("ERROR", "File write failed!");
+        logPost("ERROR", "tracklengths file write failed!");
       }
 
       file.close();
@@ -342,7 +342,7 @@ void syncTrackLength()
   }
   else
   {
-    logPost("ERROR", "tracklist response invalid!");
+    logPost("ERROR", "tracklength response invalid!");
   }
 }
 
