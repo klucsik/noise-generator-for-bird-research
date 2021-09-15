@@ -776,15 +776,21 @@ void loop()
   JsonObject thisHourParams = getPlayParams();
 
   int tracksize = thisHourParams["tracks"].size();
-  Serial.println("number of tracks in this hour: " + String(tracksize));
+  logPost("INFO", "number of tracks in this hour: " + String(tracksize));
   if (tracksize < 1)
   {
-    uint64_t sleeptime = (55 - minute()) * 60 * 1000 * 1000;
-    if (sleeptime > 0)
+    long long sleeptime = (55 - minute()) * 60 * 1000 * 1000;
+    char str[256];
+    sprintf(str, "%lld", sleeptime);
+    logPost("INFO", "sleep time: " + String(str));
+    if (sleeptime > 0LL && sleeptime < 3600000000LL)
     {
       logPost("INFO", "No tracks to paly now, going to deepsleep for minutes:" + String(55 - minute()));
       stopMp3();
       ESP.deepSleep(sleeptime);
+    }
+    else if(sleeptime < 0LL){
+      delay(60000); //az óra első 5 percében van ez az eset.
     }
   }
 
