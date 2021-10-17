@@ -27,8 +27,9 @@ const String server_url = conf.server_url;
 
 //pin configuration
 #define mp3RxPin D1
-#define mp3TxPin D2
-#define mp3PwrPin D3 //a mosfet circuit attached to switch power to the mp3 player
+#define mp3TxPin D5
+#define i2cSDAPin D6
+#define i2cSCLPin D7
 
 #include "Arduino.h"
 #include <ESP8266WiFi.h>
@@ -46,6 +47,10 @@ WiFiClient client;
 
 #include "LittleFS.h"
 
+#include <Wire.h>
+
+#include <DS3232RTC.h>      // https://github.com/JChristensen/DS3232RTC
+DS3232RTC rtc;
 int volume = 10;
 /**********************************************
              MP3 player functions
@@ -57,9 +62,6 @@ String printDetail(uint8_t type, int value);
 
 boolean startMp3(Stream &softSerial)
 {
-  pinMode(mp3PwrPin, OUTPUT);
-  digitalWrite(mp3PwrPin, HIGH);
-
   delay(1000);
   if (!myDFPlayer.begin(softSerial))
   {
@@ -71,18 +73,6 @@ boolean startMp3(Stream &softSerial)
   }
 
   return true;
-}
-
-void stopMp3()
-{
-  myDFPlayer.pause();
-  //TODO check the status, if playing, dont power down
-  digitalWrite(mp3PwrPin, LOW);
-}
-
-void forceStopMp3()
-{
-  digitalWrite(mp3PwrPin, LOW);
 }
 /**************end of section********************/
 
@@ -98,14 +88,33 @@ unsigned int localPort = 8888;
 
 void syncClock()
 {
-  USE_SERIAL.println(F("Synchronizing inner clock..."));
-  logPost("INFO", "Synchronizing inner clock...");
-  Udp.begin(localPort);
-  setSyncProvider(getNtpTime);
-  setSyncInterval(1);
-  delay(3000);
-  setSyncInterval(3000);
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    USE_SERIAL.println(F("Synchronizing inner clock..."));
+    logPost("INFO", "Synchronizing inner clock...");
+    Udp.begin(localPort);
+    setSyncProvider(getNtpTime);
+    setSyncInterval(1);
+    for (int i = 0; i < 10; i++)
+    {
+      delay(3000);
+      Serial.println("waiting for ntp response");
+      if (timeStatus() == timeSet)
+      {
+        break;
+      }
+    }
+
+    setSyncInterval(3000);
+    logPost("INFO","rtc set, i2c answerbyte: " + rtc.set(now()));
+  }
+  else
+  {
+    setSyncProvider(rtc.get);
+  }
   void digitalClockDisplay();
+  logPost("INFO", "Inner time now: " + String(now()));
+  logPost("INFO", "RTC time now: " + String(rtc.get()));
 };
 
 void printDigits(int digits)
@@ -255,12 +264,13 @@ void syncParams()
 
       file.close();
     }
-    
+
     DynamicJsonDocument doc(5000);
     deserializeJson(doc, getParams());
     JsonObject object;
     paramVersionHere = doc["paramVersion"] | -1;
-  } else
+  }
+  else
   {
 
     logPost("ERROR", "playParam response invalid!");
@@ -272,7 +282,7 @@ String getParams()
   File file = LittleFS.open("/playParams.json", "r");
   if (!file)
   {
-    logPost("ERROR","file open failed");
+    logPost("ERROR", "file open failed");
     return "";
   }
   else
@@ -355,8 +365,8 @@ int getTrackLength(int tracknumber)
   File file = LittleFS.open(F("/trackLengths.json"), "r");
   if (!file)
   {
-   logPost("ERROR",F(" tracklength file open failed"));
-   return 120;
+    logPost("ERROR", F(" tracklength file open failed"));
+    return 120;
   }
   else
   {
@@ -455,9 +465,8 @@ void logDFPlayerMessage()
     {
       loglevel = "ERROR";
     }
-    logPost(loglevel, "dfplayer status: " +String(myDFPlayer.readState()) + ", message if available: " + printDetail(myDFPlayer.readType(), myDFPlayer.read()));
+    logPost(loglevel, "dfplayer status: " + String(myDFPlayer.readState()) + ", message if available: " + printDetail(myDFPlayer.readType(), myDFPlayer.read()));
   }
-
 }
 
 boolean hourlySetupFlag = false;
@@ -653,7 +662,6 @@ String POSTTask(String url, String payload)
     USE_SERIAL.println(payload);
     http.addHeader(F("Content-Type"), F("application/json"));
 
-
     int httpCode = http.POST(payload);
 
     // httpCode will be negative on error
@@ -709,20 +717,19 @@ void setup()
   Serial.println(ESP.getChipId());
 
   WiFiManager wifiManager;
-  wifiManager.setTimeout(300);
+  wifiManager.setTimeout(300); //TODO: prepare the device for offline working
   wifiManager.autoConnect("birdnoise_config_accesspoint");
-  delay(3000);           //give somte time for the Wifi connection
+  delay(3000); //give somte time for the Wifi connection
   logPost("INFO", "STARTUP" + name + " " + ver + ", setup...");
-  
+
   updateFunc(name, ver); //checking update
-
-
 
   startMp3(mySoftwareSerial);
   //TODO:handle error if returns false
 
   LittleFS.begin();
-
+  Wire.begin(i2cSDAPin, i2cSCLPin);
+  rtc.begin();
   if (ESP.getResetReason() == "External System")
   { //kézi újraindításnál
     logPost("INFO", "Manual reset");
@@ -741,7 +748,7 @@ void setup()
   }
   Serial.println(F("DFPlayer Mini online."));
   syncClock();
-
+  digitalClockDisplay(); //show thwe current time in the terminal
   GETTask(server_url + "/deviceVoltage/save?chipId=" + ESP.getChipId() + "&voltage=" + getBatteryVoltage());
 
   logPost("INFO", "Setup finished");
@@ -755,7 +762,7 @@ void loop()
   if (minute() < 5)
   {
     if (!hourlySetupFlag) //just once do the hourly stuff
-    { 
+    {
       startGSM();
       logPost("INFO", "First minutes of hour, do hourly stuff");
       syncClock();
@@ -767,7 +774,9 @@ void loop()
       stopGSM();
       hourlySetupFlag = true;
     }
-  } else {
+  }
+  else
+  {
     hourlySetupFlag = false;
   }
 
@@ -786,11 +795,12 @@ void loop()
     if (sleeptime > 0LL && sleeptime < 3600000000LL)
     {
       logPost("INFO", "No tracks to paly now, going to deepsleep for minutes:" + String(55 - minute()));
-      stopMp3();
       ESP.deepSleep(sleeptime);
     }
-    else if(sleeptime < 0LL){
-      delay(60000); //az óra első 5 percében van ez az eset.
+    else if (sleeptime < 0LL)
+    {
+      delay(300000); //az óra első 5 percében van ez az eset.
+      sleeptime = 0; //FIXME valamiért beragad minuszokba, hátha ez rendbe szedi a változó értékét
     }
   }
 
