@@ -14,7 +14,7 @@ Config conf;
 Secrets sec;
 
 static String name = conf.name;
-static String ver = "0_7";
+static String ver = "0_8";
 
 const String update_server = sec.update_server;   //at this is url is the python flask update server, which I wrote
 const String GScriptId = sec.gID;                 //This is the secret ID of the Google script app which connects to the Google Spreadsheets
@@ -720,7 +720,7 @@ void setup()
   wifiManager.setTimeout(300); //TODO: prepare the device for offline working
   wifiManager.autoConnect("birdnoise_config_accesspoint");
   delay(3000); //give somte time for the Wifi connection
-  logPost("INFO", "STARTUP" + name + " " + ver + ", setup...");
+  logPost("INFO", "STARTUP " + name + " " + ver + ", setup...");
 
   updateFunc(name, ver); //checking update
 
