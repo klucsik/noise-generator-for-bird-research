@@ -14,7 +14,7 @@ Config conf;
 Secrets sec;
 
 static String name = conf.name;
-static String ver = "0_8";
+static String ver = "0_9";
 
 const String update_server = sec.update_server;   //at this is url is the python flask update server, which I wrote
 const String GScriptId = sec.gID;                 //This is the secret ID of the Google script app which connects to the Google Spreadsheets
@@ -106,6 +106,7 @@ void syncClock()
     }
 
     setSyncInterval(3000);
+    delay(100);
     logPost("INFO","rtc set, i2c answerbyte: " + rtc.set(now()));
   }
   else
@@ -467,6 +468,9 @@ void logDFPlayerMessage()
     }
     logPost(loglevel, "dfplayer status: " + String(myDFPlayer.readState()) + ", message if available: " + printDetail(myDFPlayer.readType(), myDFPlayer.read()));
   }
+  
+  logPost("INFO", "dfplayer status:" + String(myDFPlayer.readState()) + "no error message available");
+
 }
 
 boolean hourlySetupFlag = false;
