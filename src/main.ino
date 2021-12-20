@@ -1,12 +1,7 @@
 /***************************************************
 Noise generator for birds 
 Written by Krisztián Pál Klucsik
-
-TODOs:
-error handling (message to discord)
-GSM module for networking
-sound error detecting
- ****************************************************/
+ ***************************************************/
 
 #include "config.h" //change to change envrionment
 Config conf;
@@ -14,12 +9,9 @@ Config conf;
 Secrets sec;
 
 static String name = conf.name;
-static String ver = "0_9";
+static String ver = "0_10";
 
 const String update_server = sec.update_server;   //at this is url is the python flask update server, which I wrote
-const String GScriptId = sec.gID;                 //This is the secret ID of the Google script app which connects to the Google Spreadsheets
-const String log_sheet = conf.log_sheet;          //name of the sheet on the Spreadsheet where the events will be logged
-const String discord_chanel = sec.discord_chanel; //a discord channel webhook, we send startup messages there
 const String server_url = conf.server_url;
 
 #define LOGGING true
@@ -49,7 +41,7 @@ WiFiClient client;
 
 #include <Wire.h>
 
-#include <DS3232RTC.h>      // https://github.com/JChristensen/DS3232RTC
+#include <DS3232RTC.h> // https://github.com/JChristensen/DS3232RTC
 DS3232RTC rtc;
 int volume = 10;
 /**********************************************
@@ -60,19 +52,16 @@ SoftwareSerial mySoftwareSerial(mp3RxPin, mp3TxPin); // RX, TX
 DFRobotDFPlayerMini myDFPlayer;
 String printDetail(uint8_t type, int value);
 
-boolean startMp3(Stream &softSerial)
+void startMp3(Stream &softSerial)
 {
-  delay(1000);
   if (!myDFPlayer.begin(softSerial))
   {
     USE_SERIAL.println(F("Unable to begin:"));
     USE_SERIAL.println(F("1.Please recheck the connection!"));
     USE_SERIAL.println(F("2.Please insert the SD card!"));
+    logPost("ERROR", "DFPlayer unable to begin! SD card is ok?");
 
-    // TODO: try to determine cause, and return false
   }
-
-  return true;
 }
 /**************end of section********************/
 
@@ -107,7 +96,7 @@ void syncClock()
 
     setSyncInterval(3000);
     delay(100);
-    logPost("INFO","rtc set, i2c answerbyte: " + rtc.set(now()));
+    logPost("INFO", "rtc set, i2c answerbyte: " + rtc.set(now()));
   }
   else
   {
@@ -202,16 +191,6 @@ void sendNTPpacket(IPAddress &address)
   Udp.endPacket();
 }
 /**************end of section********************/
-
-/*
-TODO
-*/
-void startGSM(){};
-
-/*
-TODO
-*/
-void stopGSM(){};
 
 String getBatteryVoltage()
 {
@@ -468,9 +447,8 @@ void logDFPlayerMessage()
     }
     logPost(loglevel, "dfplayer status: " + String(myDFPlayer.readState()) + ", message if available: " + printDetail(myDFPlayer.readType(), myDFPlayer.read()));
   }
-  
-  logPost("INFO", "dfplayer status:" + String(myDFPlayer.readState()) + "no error message available");
 
+  logPost("INFO", "dfplayer status:" + String(myDFPlayer.readState()) + "no error message available");
 }
 
 boolean hourlySetupFlag = false;
@@ -599,13 +577,6 @@ void logPost(String log_level, String message)
   USE_SERIAL.println(POSTTask(url, payload));
 }
 
-void discordPost(String message){
-    //TODO
-    /* String payload = "{\"content\": \"" + message + "\"}";
-  String url = discord_chanel;
-  USE_SERIAL.println(POSTTask(url, payload));*/
-};
-
 String GETTask(String url)
 {
   WiFiClient client;
@@ -729,7 +700,6 @@ void setup()
   updateFunc(name, ver); //checking update
 
   startMp3(mySoftwareSerial);
-  //TODO:handle error if returns false
 
   LittleFS.begin();
   Wire.begin(i2cSDAPin, i2cSCLPin);
@@ -767,7 +737,6 @@ void loop()
   {
     if (!hourlySetupFlag) //just once do the hourly stuff
     {
-      startGSM();
       logPost("INFO", "First minutes of hour, do hourly stuff");
       syncClock();
       updateFunc(name, ver); //checking update
@@ -775,7 +744,6 @@ void loop()
       syncParams();
       delay(1000);
       syncTrackLength();
-      stopGSM();
       hourlySetupFlag = true;
     }
   }
@@ -808,25 +776,22 @@ void loop()
     }
   }
 
-  for (int i = 0; i < tracksize; i++)
-  {
-    Serial.printf("free heap size: %u\n", ESP.getFreeHeap());
-    //startMp3(mySoftwareSerial); //Ettől recseg
-    int currentTrack = thisHourParams["tracks"][random(0, tracksize)];
-    int minT = thisHourParams["minT"];
-    int maxT = thisHourParams["maxT"];
-    int tracklength = getTrackLength(currentTrack);
-    logPost("INFO", "Play track: " + String(currentTrack) + " for secs: " + tracklength);
-    myDFPlayer.volume(volume);
-    myDFPlayer.play(currentTrack);
-    delay(tracklength / 2 * 1000); //wait until the half of the track
-    logDFPlayerMessage();
-    delay(tracklength / 2 * 1000); //wait until the end of the track
-    logDFPlayerMessage();
-    //stopMp3();
-    //calculate pause between tracks:
-    long calculatedDelay = random(minT, maxT) * 1000;
-    logPost("INFO", "Pause play for secs: " + String(calculatedDelay / 1000));
-    delay(calculatedDelay);
-  }
+  Serial.printf("free heap size: %u\n", ESP.getFreeHeap());
+  //startMp3(mySoftwareSerial); //Ettől recseg
+  int currentTrack = thisHourParams["tracks"][random(0, tracksize)];
+  int minT = thisHourParams["minT"];
+  int maxT = thisHourParams["maxT"];
+  int tracklength = getTrackLength(currentTrack);
+  logPost("INFO", "Play track: " + String(currentTrack) + " for secs: " + tracklength);
+  myDFPlayer.volume(volume);
+  myDFPlayer.play(currentTrack);
+  delay(tracklength / 2 * 1000); //wait until the half of the track
+  logDFPlayerMessage();
+  delay(tracklength / 2 * 1000); //wait until the end of the track
+  logDFPlayerMessage();
+  //stopMp3();
+  //calculate pause between tracks:
+  long calculatedDelay = random(minT, maxT) * 1000;
+  logPost("INFO", "Pause play for secs: " + String(calculatedDelay / 1000));
+  delay(calculatedDelay);
 }
