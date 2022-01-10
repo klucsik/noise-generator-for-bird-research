@@ -14,7 +14,6 @@ static String ver = "0_10";
 const String update_server = sec.update_server;   //at this is url is the python flask update server, which I wrote
 const String server_url = conf.server_url;
 
-#define LOGGING true
 #define USE_SERIAL Serial
 
 //pin configuration
@@ -45,6 +44,40 @@ WiFiClient client;
 DS3232RTC rtc;
 int volume = 10;
 /**********************************************
+             Logging
+
+***********************************************/
+//content types
+#define MESSAGE 0
+#define ERROR 1
+#define TRACK_PLAYED 2 //tracknumber-tracklength
+#define PAUSE_TIME 3
+#define RTC_NOW 4
+#define INNER_NOW 5
+#define NEW_PLAYPARAM_VER 6
+#define START_UP 7 //version 
+#define MANUAL_START_UP 8
+#define DEEP_SLEEP 9 //sleep minutes
+//MessageCodes:
+//  errors:
+#define DFPLAYER_START_ERROR "1"
+#define FILE_OPEN_ERROR "2"
+#define FILE_WRITE_FAIL "3"
+#define PLAYPARAM_INVALID "4"
+#define TRACKLENGTH_INVALID "5"
+
+void logPost(int contentTypeCode, String messageCode)
+{
+  //save to file
+
+  //TODO if wifi connected, send logs
+  USE_SERIAL.println("log --- " + String(contentTypeCode) + "; " + messageCode);
+  String url = server_url + "/deviceLog/save?chipId=" + ESP.getChipId();
+  String payload = "{\"timestamp\":" + String(now()) +", \"contentTypeCode\":\"" + String(contentTypeCode) + String("\", \"messageCode\":\"") + messageCode + "\"}";
+  USE_SERIAL.println(POSTTask(url, payload));
+}
+
+/**********************************************
              MP3 player functions
 
 ***********************************************/
@@ -59,7 +92,7 @@ void startMp3(Stream &softSerial)
     USE_SERIAL.println(F("Unable to begin:"));
     USE_SERIAL.println(F("1.Please recheck the connection!"));
     USE_SERIAL.println(F("2.Please insert the SD card!"));
-    logPost("ERROR", "DFPlayer unable to begin! SD card is ok?");
+    logPost(MESSAGE, DFPLAYER_START_ERROR);
 
   }
 }
@@ -80,7 +113,6 @@ void syncClock()
   if (WiFi.status() == WL_CONNECTED)
   {
     USE_SERIAL.println(F("Synchronizing inner clock..."));
-    logPost("INFO", "Synchronizing inner clock...");
     Udp.begin(localPort);
     setSyncProvider(getNtpTime);
     setSyncInterval(1);
@@ -96,15 +128,14 @@ void syncClock()
 
     setSyncInterval(3000);
     delay(100);
-    logPost("INFO", "rtc set, i2c answerbyte: " + rtc.set(now()));
   }
   else
   {
     setSyncProvider(rtc.get);
   }
   void digitalClockDisplay();
-  logPost("INFO", "Inner time now: " + String(now()));
-  logPost("INFO", "RTC time now: " + String(rtc.get()));
+  logPost(INNER_NOW, String(now()));
+  logPost(RTC_NOW, String(rtc.get()));
 };
 
 void printDigits(int digits)
@@ -214,8 +245,7 @@ checks if the daily paramteres need an update
 */
 void syncParams()
 {
-  logPost("INFO", "Syncing PlayParams, we have dpp here:" + String(paramVersionHere));
-  String resp = GETTask(server_url + "/devicePlayParamSelector/selectSlimPlayParam?chipId=" + ESP.getChipId() + "&paramVersion=" + String(paramVersionHere));
+ String resp = GETTask(server_url + "/devicePlayParamSelector/selectSlimPlayParam?chipId=" + ESP.getChipId() + "&paramVersion=" + String(paramVersionHere));
   if (resp.indexOf(F("playParams")) != -1)
   {
     //save to file
@@ -223,7 +253,7 @@ void syncParams()
     if (!file)
     {
       USE_SERIAL.println(F("file open failed"));
-      logPost("ERROR", "file open failed!");
+      logPost(ERROR, FILE_OPEN_ERROR);
     }
     else
     {
@@ -234,12 +264,11 @@ void syncParams()
       {
         Serial.println(F("File was written "));
         Serial.println(bytesWritten);
-        logPost("INFO", "PlayParam file was written with bytes: " + String(bytesWritten));
       }
       else
       {
         Serial.println(F("File write failed"));
-        logPost("ERROR", "File write failed!");
+        logPost(ERROR, FILE_WRITE_FAIL);
       }
 
       file.close();
@@ -249,11 +278,12 @@ void syncParams()
     deserializeJson(doc, getParams());
     JsonObject object;
     paramVersionHere = doc["paramVersion"] | -1;
+    logPost(NEW_PLAYPARAM_VER, String(paramVersionHere));
   }
   else
   {
 
-    logPost("ERROR", "playParam response invalid!");
+    logPost(ERROR, PLAYPARAM_INVALID);
   }
 };
 
@@ -262,7 +292,7 @@ String getParams()
   File file = LittleFS.open("/playParams.json", "r");
   if (!file)
   {
-    logPost("ERROR", "file open failed");
+    logPost(ERROR, FILE_OPEN_ERROR);
     return "";
   }
   else
@@ -303,7 +333,7 @@ JsonObject getPlayParams()
 
 void syncTrackLength()
 {
-  logPost("INFO", "Syncing tracklengths...");
+
   String resp = GETTask(server_url + "/TrackPageSlim/page");
   if (resp.indexOf(F("tracklengths")) != -1)
   {
@@ -311,7 +341,7 @@ void syncTrackLength()
     File file = LittleFS.open(F("/trackLengths.json"), "w");
     if (!file)
     {
-      logPost("ERROR", "tracklength file open failed!");
+      logPost(ERROR, FILE_OPEN_ERROR);
     }
     else
     {
@@ -320,11 +350,10 @@ void syncTrackLength()
 
       if (bytesWritten > 0)
       {
-        logPost("INFO", "tracklength file was written with bytes: " + String(bytesWritten));
       }
       else
       {
-        logPost("ERROR", "tracklengths file write failed!");
+        logPost(ERROR, FILE_WRITE_FAIL);
       }
 
       file.close();
@@ -332,7 +361,7 @@ void syncTrackLength()
   }
   else
   {
-    logPost("ERROR", "tracklength response invalid!");
+    logPost(ERROR, TRACKLENGTH_INVALID);
   }
 }
 
@@ -345,7 +374,7 @@ int getTrackLength(int tracknumber)
   File file = LittleFS.open(F("/trackLengths.json"), "r");
   if (!file)
   {
-    logPost("ERROR", F(" tracklength file open failed"));
+    logPost(ERROR, FILE_OPEN_ERROR);
     return 120;
   }
   else
@@ -440,15 +469,11 @@ void logDFPlayerMessage()
 {
   if (myDFPlayer.available())
   {
-    String loglevel = "INFO";
     if (myDFPlayer.readType() == DFPlayerError)
     {
-      loglevel = "ERROR";
+      logPost(ERROR, String(myDFPlayer.readState()) + "-" + myDFPlayer.readType() + "-" + myDFPlayer.read());
     }
-    logPost(loglevel, "dfplayer status: " + String(myDFPlayer.readState()) + ", message if available: " + printDetail(myDFPlayer.readType(), myDFPlayer.read()));
   }
-
-  logPost("INFO", "dfplayer status:" + String(myDFPlayer.readState()) + "no error message available");
 }
 
 boolean hourlySetupFlag = false;
@@ -459,7 +484,6 @@ boolean hourlySetupFlag = false;
 ***********************************************/
 void updateFunc(String Name, String Version) //TODO: documentation
 {
-  logPost("INFO", "Looking for software update");
   HTTPClient http;
 
   String url = update_server + "/check?" + "name=" + Name + "&ver=" + Version;
@@ -567,15 +591,7 @@ void update_error(int err)
 #include <ESP8266httpUpdate.h>
 #include <ESP8266HTTPClient.h>
 
-void logPost(String log_level, String message)
-{
-  //TODO ifdef a logging definedból
-  USE_SERIAL.println("log --- " + log_level + "; " + message);
-  String url = server_url + "/deviceLog/save?chipId=" + ESP.getChipId();
-  String payload = "{\"logLevel\":\"" + log_level + String("\", \"message\":\"") + message + "\"}";
-  //String payload = "potato";
-  USE_SERIAL.println(POSTTask(url, payload));
-}
+
 
 String GETTask(String url)
 {
@@ -695,7 +711,7 @@ void setup()
   wifiManager.setTimeout(300); //TODO: prepare the device for offline working
   wifiManager.autoConnect("birdnoise_config_accesspoint");
   delay(3000); //give somte time for the Wifi connection
-  logPost("INFO", "STARTUP " + name + " " + ver + ", setup...");
+  logPost(START_UP, ver);
 
   updateFunc(name, ver); //checking update
 
@@ -706,7 +722,7 @@ void setup()
   rtc.begin();
   if (ESP.getResetReason() == "External System")
   { //kézi újraindításnál
-    logPost("INFO", "Manual reset");
+    logPost(MANUAL_START_UP, "");
     syncTrackLength();
     delay(1000);
     syncParams();
@@ -724,8 +740,6 @@ void setup()
   syncClock();
   digitalClockDisplay(); //show thwe current time in the terminal
   GETTask(server_url + "/deviceVoltage/save?chipId=" + ESP.getChipId() + "&voltage=" + getBatteryVoltage());
-
-  logPost("INFO", "Setup finished");
 }
 
 void loop()
@@ -737,7 +751,6 @@ void loop()
   {
     if (!hourlySetupFlag) //just once do the hourly stuff
     {
-      logPost("INFO", "First minutes of hour, do hourly stuff");
       syncClock();
       updateFunc(name, ver); //checking update
       runHourlyReport();
@@ -757,16 +770,14 @@ void loop()
   JsonObject thisHourParams = getPlayParams();
 
   int tracksize = thisHourParams["tracks"].size();
-  logPost("INFO", "number of tracks in this hour: " + String(tracksize));
   if (tracksize < 1)
   {
-    long long sleeptime = (55 - minute()) * 60 * 1000 * 1000;
+    long long sleeptime = (59 - minute()) * 60 * 1000 * 1000;
     char str[256];
     sprintf(str, "%lld", sleeptime);
-    logPost("INFO", "sleep time: " + String(str));
     if (sleeptime > 0LL && sleeptime < 3600000000LL)
     {
-      logPost("INFO", "No tracks to paly now, going to deepsleep for minutes:" + String(55 - minute()));
+      logPost(DEEP_SLEEP, String(55 - minute()));
       ESP.deepSleep(sleeptime);
     }
     else if (sleeptime < 0LL)
@@ -782,16 +793,16 @@ void loop()
   int minT = thisHourParams["minT"];
   int maxT = thisHourParams["maxT"];
   int tracklength = getTrackLength(currentTrack);
-  logPost("INFO", "Play track: " + String(currentTrack) + " for secs: " + tracklength);
+  logPost(TRACK_PLAYED, String(currentTrack) + "-" + String(tracklength));
   myDFPlayer.volume(volume);
   myDFPlayer.play(currentTrack);
   delay(tracklength / 2 * 1000); //wait until the half of the track
   logDFPlayerMessage();
   delay(tracklength / 2 * 1000); //wait until the end of the track
   logDFPlayerMessage();
-  //stopMp3();
+ 
   //calculate pause between tracks:
   long calculatedDelay = random(minT, maxT) * 1000;
-  logPost("INFO", "Pause play for secs: " + String(calculatedDelay / 1000));
+  logPost(PAUSE_TIME, String(calculatedDelay / 1000));
   delay(calculatedDelay);
 }
