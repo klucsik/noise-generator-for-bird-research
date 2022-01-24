@@ -9,7 +9,7 @@ Config conf;
 Secrets sec;
 
 static String name = conf.name;
-static String ver = "0_10";
+static String ver = "0_11";
 
 const String update_server = sec.update_server;   //at this is url is the python flask update server, which I wrote
 const String server_url = conf.server_url;
@@ -56,8 +56,9 @@ int volume = 10;
 #define INNER_NOW 5
 #define NEW_PLAYPARAM_VER 6
 #define START_UP 7 //version 
-#define MANUAL_START_UP 8
 #define DEEP_SLEEP 9 //sleep minutes
+#define CURRENT_PLAYPARAM 10 
+#define DF_PLAYER_MESSAGE 11
 //MessageCodes:
 //  errors:
 #define DFPLAYER_START_ERROR "1"
@@ -69,7 +70,7 @@ int volume = 10;
 void logPost(int contentTypeCode, String messageCode)
 {
   //save to file
-
+  
   //TODO if wifi connected, send logs
   USE_SERIAL.println("log --- " + String(contentTypeCode) + "; " + messageCode);
   String url = server_url + "/deviceLog/save?chipId=" + ESP.getChipId();
@@ -471,7 +472,7 @@ void logDFPlayerMessage()
   {
     if (myDFPlayer.readType() == DFPlayerError)
     {
-      logPost(ERROR, String(myDFPlayer.readState()) + "-" + myDFPlayer.readType() + "-" + myDFPlayer.read());
+      logPost(DF_PLAYER_MESSAGE, String(myDFPlayer.readState()) + "-" + myDFPlayer.readType() + "-" + myDFPlayer.read());
     }
   }
 }
@@ -720,26 +721,25 @@ void setup()
   LittleFS.begin();
   Wire.begin(i2cSDAPin, i2cSCLPin);
   rtc.begin();
-  if (ESP.getResetReason() == "External System")
-  { //kézi újraindításnál
-    logPost(MANUAL_START_UP, "");
+  if (ESP.getResetReason() != "Deep-Sleep Wake")
+  { //kézi újraindításnál, vagy power cyclenél
     syncTrackLength();
     delay(1000);
     syncParams();
     Serial.println(F("Showing of sound skills for humans"));
     myDFPlayer.volume(volume);
     myDFPlayer.play(1);
-    delay(3000);
-    myDFPlayer.stop();
-
+    delay(2000);
     syncTrackLength(); //tuti, ami biztos
     delay(1000);
     syncParams();
+    myDFPlayer.stop();
+
+
   }
   Serial.println(F("DFPlayer Mini online."));
   syncClock();
   digitalClockDisplay(); //show thwe current time in the terminal
-  GETTask(server_url + "/deviceVoltage/save?chipId=" + ESP.getChipId() + "&voltage=" + getBatteryVoltage());
 }
 
 void loop()
@@ -757,6 +757,7 @@ void loop()
       syncParams();
       delay(1000);
       syncTrackLength();
+      logPost(CURRENT_PLAYPARAM, String(paramVersionHere));
       hourlySetupFlag = true;
     }
   }
