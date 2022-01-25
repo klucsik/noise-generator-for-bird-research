@@ -1,12 +1,7 @@
 /***************************************************
 Noise generator for birds 
 Written by Krisztián Pál Klucsik
-
-TODOs:
-error handling (message to discord)
-GSM module for networking
-sound error detecting
- ****************************************************/
+ ***************************************************/
 
 #include "config.h" //change to change envrionment
 Config conf;
@@ -14,19 +9,18 @@ Config conf;
 Secrets sec;
 
 static String name = conf.name;
-static String ver = "0_7";
+static String ver = "0_11";
 
 const String update_server = sec.update_server;   //at this is url is the python flask update server, which I wrote
-const String GScriptId = sec.gID;                 //This is the secret ID of the Google script app which connects to the Google Spreadsheets
-const String log_sheet = conf.log_sheet;          //name of the sheet on the Spreadsheet where the events will be logged
-const String discord_chanel = sec.discord_chanel; //a discord channel webhook, we send startup messages there
+const String server_url = conf.server_url;
 
 #define USE_SERIAL Serial
 
 //pin configuration
 #define mp3RxPin D1
-#define mp3TxPin D2
-#define mp3PwrPin D3 //a mosfet circuit attached to switch power to the mp3 player
+#define mp3TxPin D5
+#define i2cSDAPin D6
+#define i2cSCLPin D7
 
 #include "Arduino.h"
 #include <ESP8266WiFi.h>
@@ -44,43 +38,62 @@ WiFiClient client;
 
 #include "LittleFS.h"
 
+#include <Wire.h>
+
+#include <DS3232RTC.h> // https://github.com/JChristensen/DS3232RTC
+DS3232RTC rtc;
 int volume = 10;
+/**********************************************
+             Logging
+
+***********************************************/
+//content types
+#define TRACK_PLAYED 2 //tracknumber-tracklength
+#define PAUSE_TIME 3
+#define RTC_NOW 4
+#define INNER_NOW 5
+#define NEW_PLAYPARAM_VER 6
+#define START_UP 7 //version 
+#define DEEP_SLEEP 9 //sleep minutes
+#define CURRENT_PLAYPARAM 10 
+#define DF_PLAYER_MESSAGE 11
+//MessageCodes:
+//  errors:
+#define DFPLAYER_START_ERROR 91
+#define FILE_OPEN_ERROR 92
+#define FILE_WRITE_FAIL 93
+#define PLAYPARAM_INVALID 94
+#define TRACKLENGTH_INVALID 95
+
+void logPost(int messageCode, String additional)
+{
+  //save to file
+  
+  //TODO if wifi connected, send logs
+  USE_SERIAL.println("log --- " + String(messageCode) + "; " + additional);
+  String url = server_url + "/deviceLog/save?chipId=" + ESP.getChipId();
+  String payload = "{\"timestamp\":" + String(now()) +", \"messageCode\":\"" + String(messageCode) + String("\", \"additional\":\"") + additional + "\"}";
+  USE_SERIAL.println(POSTTask(url, payload));
+}
+
 /**********************************************
              MP3 player functions
 
 ***********************************************/
 SoftwareSerial mySoftwareSerial(mp3RxPin, mp3TxPin); // RX, TX
 DFRobotDFPlayerMini myDFPlayer;
-void printDetail(uint8_t type, int value);
+String printDetail(uint8_t type, int value);
 
-boolean startMp3(Stream &softSerial)
+void startMp3(Stream &softSerial)
 {
-  pinMode(mp3PwrPin, OUTPUT);
-  digitalWrite(mp3PwrPin, HIGH);
-
-  delay(1000);
   if (!myDFPlayer.begin(softSerial))
   {
     USE_SERIAL.println(F("Unable to begin:"));
     USE_SERIAL.println(F("1.Please recheck the connection!"));
     USE_SERIAL.println(F("2.Please insert the SD card!"));
+    logPost( DFPLAYER_START_ERROR,"");
 
-    // TODO: try to determine cause, and return false
   }
-
-  return true;
-}
-
-void stopMp3()
-{
-  myDFPlayer.pause();
-  //TODO check the status, if playing, dont power down
-  digitalWrite(mp3PwrPin, LOW);
-}
-
-void forceStopMp3()
-{
-  digitalWrite(mp3PwrPin, LOW);
 }
 /**************end of section********************/
 
@@ -96,14 +109,32 @@ unsigned int localPort = 8888;
 
 void syncClock()
 {
-  USE_SERIAL.println(F("Synchronizing inner clock..."));
-  GsheetPost(log_sheet, "INFO;Synchronizing inner clock...");
-  Udp.begin(localPort);
-  setSyncProvider(getNtpTime);
-  setSyncInterval(1);
-  delay(3000);
-  setSyncInterval(3000);
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    USE_SERIAL.println(F("Synchronizing inner clock..."));
+    Udp.begin(localPort);
+    setSyncProvider(getNtpTime);
+    setSyncInterval(1);
+    for (int i = 0; i < 10; i++)
+    {
+      delay(3000);
+      Serial.println("waiting for ntp response");
+      if (timeStatus() == timeSet)
+      {
+        break;
+      }
+    }
+
+    setSyncInterval(3000);
+    delay(100);
+  }
+  else
+  {
+    setSyncProvider(rtc.get);
+  }
   void digitalClockDisplay();
+  logPost(INNER_NOW, String(now()));
+  logPost(RTC_NOW, String(rtc.get()));
 };
 
 void printDigits(int digits)
@@ -191,20 +222,10 @@ void sendNTPpacket(IPAddress &address)
 }
 /**************end of section********************/
 
-/*
-TODO
-*/
-void startGSM(){};
-
-/*
-TODO
-*/
-void stopGSM(){};
-
 String getBatteryVoltage()
 {
   //TODO
-  return "666";
+  return "0.666";
 }
 
 /*
@@ -213,7 +234,7 @@ reports data to the spreadsheet server
 void runHourlyReport()
 {
 
-  String resp = GETTask("https://script.google.com/macros/s/" + GScriptId + "/exec?deviceId=" + ESP.getChipId() + "&batteryVoltage=" + getBatteryVoltage());
+  String resp = GETTask(server_url + "/deviceVoltage/save?chipId=" + ESP.getChipId() + "&voltage=" + getBatteryVoltage());
 };
 
 int paramVersionHere = -2;
@@ -223,8 +244,7 @@ checks if the daily paramteres need an update
 */
 void syncParams()
 {
-    GsheetPost(log_sheet, "INFO;Syncing Params");
-  String resp = GETTask("https://script.google.com/macros/s/" + GScriptId + "/exec?deviceId=" + ESP.getChipId() + "&paramVersion=" + String(paramVersionHere));
+ String resp = GETTask(server_url + "/devicePlayParamSelector/selectSlimPlayParam?chipId=" + ESP.getChipId() + "&paramVersion=" + String(paramVersionHere));
   if (resp.indexOf(F("playParams")) != -1)
   {
     //save to file
@@ -232,7 +252,7 @@ void syncParams()
     if (!file)
     {
       USE_SERIAL.println(F("file open failed"));
-      GsheetPost(log_sheet, "ERROR;file open failed!");
+      logPost(FILE_OPEN_ERROR,"p");
     }
     else
     {
@@ -243,26 +263,26 @@ void syncParams()
       {
         Serial.println(F("File was written "));
         Serial.println(bytesWritten);
-        GsheetPost(log_sheet, "INFO;File was written with bytes: " + String(bytesWritten));
-        
       }
       else
       {
         Serial.println(F("File write failed"));
-        GsheetPost(log_sheet, "ERROR;File write failed!");
+        logPost( FILE_WRITE_FAIL,"p");
       }
 
       file.close();
     }
-    //send an acknowledge back to the sheet, that we are refreshed
+
     DynamicJsonDocument doc(5000);
     deserializeJson(doc, getParams());
     JsonObject object;
     paramVersionHere = doc["paramVersion"] | -1;
+    logPost(NEW_PLAYPARAM_VER, String(paramVersionHere));
   }
+  else
   {
-    Serial.println(F("response invalid!"));
-    GsheetPost(log_sheet, "ERROR;Response invalid!");
+
+    logPost(PLAYPARAM_INVALID,"");
   }
 };
 
@@ -271,7 +291,8 @@ String getParams()
   File file = LittleFS.open("/playParams.json", "r");
   if (!file)
   {
-    USE_SERIAL.println("file open failed");
+    logPost( FILE_OPEN_ERROR,"p");
+    return "";
   }
   else
   {
@@ -311,17 +332,15 @@ JsonObject getPlayParams()
 
 void syncTrackLength()
 {
-  GsheetPost(log_sheet, "INFO;Syncing tracklengths...");
-  Serial.println(F("Syncing tracklengths"));
-  String resp = GETTask("https://script.google.com/macros/s/" + GScriptId + "/exec?trackLengths=1");
+
+  String resp = GETTask(server_url + "/TrackPageSlim/page");
   if (resp.indexOf(F("tracklengths")) != -1)
   {
     //save to file
     File file = LittleFS.open(F("/trackLengths.json"), "w");
     if (!file)
     {
-      USE_SERIAL.println(F("file open failed"));
-      GsheetPost(log_sheet, "ERROR;file open failed!");
+      logPost(FILE_OPEN_ERROR,"t");
     }
     else
     {
@@ -330,14 +349,10 @@ void syncTrackLength()
 
       if (bytesWritten > 0)
       {
-        Serial.println(F("File was written "));
-        Serial.println(bytesWritten);
-        GsheetPost(log_sheet, "INFO;File was written with bytes: " + String(bytesWritten));
       }
       else
       {
-        Serial.println(F("File write failed"));
-        GsheetPost(log_sheet, "ERROR;File write failed!");
+        logPost(FILE_WRITE_FAIL, "t");
       }
 
       file.close();
@@ -345,8 +360,7 @@ void syncTrackLength()
   }
   else
   {
-    Serial.println(F("response invalid!"));
-    GsheetPost(log_sheet, "ERROR;Response invalid!");
+    logPost( TRACKLENGTH_INVALID,"t");
   }
 }
 
@@ -359,7 +373,8 @@ int getTrackLength(int tracknumber)
   File file = LittleFS.open(F("/trackLengths.json"), "r");
   if (!file)
   {
-    USE_SERIAL.println(F("file open failed"));
+    logPost(FILE_OPEN_ERROR,"t");
+    return 120;
   }
   else
   {
@@ -384,61 +399,60 @@ int getTrackLength(int tracknumber)
   }
 }
 
-//TODO rewrite this to give back the message dont print it out, i want to put this message into logs
-void printDetail(uint8_t type, int value)
+String printDetail(uint8_t type, int value)
 {
+  String message = "";
+
   switch (type)
   {
   case TimeOut:
-    Serial.println(F("Time Out!"));
+    message = F("Time Out!");
     break;
   case WrongStack:
-    Serial.println(F("Stack Wrong!"));
+    message = F("Stack Wrong!");
     break;
   case DFPlayerCardInserted:
-    Serial.println(F("Card Inserted!"));
+    message = F("Card Inserted!");
     break;
   case DFPlayerCardRemoved:
-    Serial.println(F("Card Removed!"));
+    message = F("Card Removed!");
     break;
   case DFPlayerCardOnline:
-    Serial.println(F("Card Online!"));
+    message = F("Card Online!");
     break;
   case DFPlayerUSBInserted:
-    Serial.println("USB Inserted!");
+    message = F("USB Inserted!");
     break;
   case DFPlayerUSBRemoved:
-    Serial.println("USB Removed!");
+    message = F("USB Removed!");
     break;
   case DFPlayerPlayFinished:
-    Serial.print(F("Number:"));
-    Serial.print(value);
-    Serial.println(F(" Play Finished!"));
+    message = "Number: " + String(value) + " Play Finished!";
     break;
   case DFPlayerError:
-    Serial.print(F("DFPlayerError:"));
+    message = F("DFPlayerError:");
     switch (value)
     {
     case Busy:
-      Serial.println(F("Card not found"));
+      message = message + F("Card not found");
       break;
     case Sleeping:
-      Serial.println(F("Sleeping"));
+      message = message + F("Sleeping");
       break;
     case SerialWrongStack:
-      Serial.println(F("Get Wrong Stack"));
+      message = message + F("Get Wrong Stack");
       break;
     case CheckSumNotMatch:
-      Serial.println(F("Check Sum Not Match"));
+      message = message + F("Check Sum Not Match");
       break;
     case FileIndexOut:
-      Serial.println(F("File Index Out of Bound"));
+      message = message + F("File Index Out of Bound");
       break;
     case FileMismatch:
-      Serial.println(F("Cannot Find File"));
+      message = message + F("Cannot Find File");
       break;
     case Advertise:
-      Serial.println(F("In Advertise"));
+      message = message + F("In Advertise");
       break;
     default:
       break;
@@ -446,6 +460,18 @@ void printDetail(uint8_t type, int value)
     break;
   default:
     break;
+  }
+  return message;
+}
+
+void logDFPlayerMessage()
+{
+  if (myDFPlayer.available())
+  {
+    if (myDFPlayer.readType() == DFPlayerError)
+    {
+      logPost(DF_PLAYER_MESSAGE, String(myDFPlayer.readState()) + "-" + myDFPlayer.readType() + "-" + myDFPlayer.read());
+    }
   }
 }
 
@@ -457,7 +483,6 @@ boolean hourlySetupFlag = false;
 ***********************************************/
 void updateFunc(String Name, String Version) //TODO: documentation
 {
-  GsheetPost(log_sheet, "INFO;Looking for software update");
   HTTPClient http;
 
   String url = update_server + "/check?" + "name=" + Name + "&ver=" + Version;
@@ -565,53 +590,34 @@ void update_error(int err)
 #include <ESP8266httpUpdate.h>
 #include <ESP8266HTTPClient.h>
 
-void GsheetPost(String sheet_name, String datastring)
-{
-  datastring = String(ESP.getChipId()) + ";" + datastring; //add ID as first field
-  USE_SERIAL.println(F("POST to spreadsheet:"));
-  String url = String(F("https://script.google.com/macros/s/")) + String(GScriptId) + "/exec";
-  String payload = String("{\"command\": \"appendRow\", \  \"sheet_name\": \"") + sheet_name + "\", \ \"values\": " + "\"" + datastring + "\"}";
 
-  USE_SERIAL.println(POSTTask(url, payload));
-};
-
-void discordPost(String message)
-{
-
-  String payload = "{\"content\": \"" + message + "\"}";
-  String url = discord_chanel;
-  USE_SERIAL.println(POSTTask(url, payload));
-};
 
 String GETTask(String url)
 {
-  std::unique_ptr<BearSSL::WiFiClientSecure> client(new BearSSL::WiFiClientSecure);
-  client->setInsecure(); //This will set the http connection to insecure! This is not advised, but I have found no good way to use real SSL, and my application doesn't need the added security
-  HTTPClient https;
-  https.setFollowRedirects(true); //this is needed for the Google backend, which always redirects
-  if (https.begin(*client, url))
+  WiFiClient client;
+  HTTPClient http;
+  if (http.begin(client, url))
   {
     USE_SERIAL.print(F("[HTTPS] GET "));
     USE_SERIAL.println(url);
 
-    int httpCode = https.GET();
+    int httpCode = http.GET();
 
     // httpCode will be negative on error
     if (httpCode > 0)
     {
-      // HTTP header has been send and Server response header has been handled
       USE_SERIAL.printf("[HTTPS] GET... code: %d\n", httpCode);
       if (httpCode == 302)
       {
-        String redirectUrl = https.getLocation();
-        https.end();
+        String redirectUrl = http.getLocation();
+        http.end();
         return redirectUrl;
       }
-      if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY)
+      else
       {
-        String payload = https.getString();
+        String payload = http.getString();
         USE_SERIAL.println(payload);
-        https.end();
+        http.end();
 
         return payload;
       }
@@ -620,11 +626,11 @@ String GETTask(String url)
     {
       USE_SERIAL.print(F("[HTTPS] GET... failed, error: "));
       USE_SERIAL.println(httpCode);
-      https.end();
+      http.end();
       return "";
     }
 
-    https.end();
+    http.end();
   }
   else
   {
@@ -636,19 +642,17 @@ String GETTask(String url)
 
 String POSTTask(String url, String payload)
 {
-  std::unique_ptr<BearSSL::WiFiClientSecure> client(new BearSSL::WiFiClientSecure);
-  client->setInsecure();
-  HTTPClient https;
-  if (https.begin(*client, url))
+  WiFiClient client;
+  HTTPClient http;
+  if (http.begin(client, url))
   {
     USE_SERIAL.print(F("[HTTPS] POST "));
     USE_SERIAL.print(url);
     USE_SERIAL.print(" --> ");
     USE_SERIAL.println(payload);
-    https.addHeader(F("Content-Type"), F("application/json"));
-    https.setFollowRedirects(true);
+    http.addHeader(F("Content-Type"), F("application/json"));
 
-    int httpCode = https.POST(payload);
+    int httpCode = http.POST(payload);
 
     // httpCode will be negative on error
     if (httpCode > 0)
@@ -660,8 +664,8 @@ String POSTTask(String url, String payload)
       // file found at server
       if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY)
       {
-        String payload = https.getString();
-        https.end();
+        String payload = http.getString();
+        http.end();
         return payload;
       }
     }
@@ -669,11 +673,11 @@ String POSTTask(String url, String payload)
     {
       USE_SERIAL.print(F("[HTTPS] POST... failed, error: "));
       USE_SERIAL.println(httpCode);
-      https.end();
+      http.end();
       return "";
     }
 
-    https.end();
+    http.end();
   }
   else
   {
@@ -703,38 +707,37 @@ void setup()
   Serial.println(ESP.getChipId());
 
   WiFiManager wifiManager;
-  wifiManager.setTimeout(300);
+  wifiManager.setTimeout(300); //TODO: prepare the device for offline working
   wifiManager.autoConnect("birdnoise_config_accesspoint");
-  delay(3000);           //give somte time for the Wifi connection
+  delay(3000); //give somte time for the Wifi connection
+  logPost(START_UP, ver);
+
   updateFunc(name, ver); //checking update
 
-  GsheetPost(log_sheet,"INFO;Startup " + name +" "+ ver + ", setup...");
-
-  Serial.println(F("Initializing DFPlayer ... (May take 3~5 seconds)"));
   startMp3(mySoftwareSerial);
-  //TODO:handle error if returns false
+
   LittleFS.begin();
-  if (ESP.getResetReason() == "External System")
-  { //kézi újraindításnál
-    GsheetPost(log_sheet, "INFO;Manual reset");
+  Wire.begin(i2cSDAPin, i2cSCLPin);
+  rtc.begin();
+  if (ESP.getResetReason() != "Deep-Sleep Wake")
+  { //kézi újraindításnál, vagy power cyclenél
     syncTrackLength();
     delay(1000);
     syncParams();
     Serial.println(F("Showing of sound skills for humans"));
     myDFPlayer.volume(volume);
     myDFPlayer.play(1);
-    delay(3000);
-    myDFPlayer.stop();
-
+    delay(2000);
     syncTrackLength(); //tuti, ami biztos
     delay(1000);
-    syncParams(); //to update the version in the excel in the first run
+    syncParams();
+    myDFPlayer.stop();
+
+
   }
   Serial.println(F("DFPlayer Mini online."));
   syncClock();
-
-  GETTask("https://script.google.com/macros/s/" + GScriptId + "/exec?deviceId=" + ESP.getChipId() + "&batteryVoltage=" + getBatteryVoltage() + "&startUp=1");
-  GsheetPost(log_sheet, "INFO;Setup finished");
+  digitalClockDisplay(); //show thwe current time in the terminal
 }
 
 void loop()
@@ -744,18 +747,15 @@ void loop()
 
   if (minute() < 5)
   {
-    if (!hourlySetupFlag)
-    { //just once do the hourly stuff
-      Serial.println(F("First minutes of hour, do hourly stuff:"));
-      startGSM();
-      GsheetPost(log_sheet, "INFO;First minutes of hour, do hourly stuff");
+    if (!hourlySetupFlag) //just once do the hourly stuff
+    {
       syncClock();
       updateFunc(name, ver); //checking update
       runHourlyReport();
       syncParams();
       delay(1000);
       syncTrackLength();
-      stopGSM();
+      logPost(CURRENT_PLAYPARAM, String(paramVersionHere));
       hourlySetupFlag = true;
     }
   }
@@ -769,44 +769,39 @@ void loop()
   JsonObject thisHourParams = getPlayParams();
 
   int tracksize = thisHourParams["tracks"].size();
-  Serial.println("number of tracks in this hour: " + String(tracksize));
-  //TODO ha nincs beállítás go to sleep
   if (tracksize < 1)
   {
-    long sleeptime = (55 - minute()) * 60 * 1000 * 1000;
-    if (sleeptime > 0)
+    long long sleeptime = (59 - minute()) * 60 * 1000 * 1000;
+    char str[256];
+    sprintf(str, "%lld", sleeptime);
+    if (sleeptime > 0LL && sleeptime < 3600000000LL)
     {
-      Serial.println("going to deepsleep for:" + String(sleeptime));
-      GsheetPost(log_sheet, "INFO;No tracks to paly now, going to deepsleep for:" + String(sleeptime));
+      logPost(DEEP_SLEEP, String(59 - minute()));
       ESP.deepSleep(sleeptime);
     }
-  }
-
-  for (int i = 0; i < tracksize; i++)
-  {
-    Serial.printf("free heap size: %u\n", ESP.getFreeHeap());
-    //startMp3(mySoftwareSerial); //Ettől recseg
-    int currentTrack = thisHourParams["tracks"][random(0, tracksize)];
-    int minT = thisHourParams["minT"];
-    int maxT = thisHourParams["maxT"];
-    int tracklength = getTrackLength(currentTrack);
-    Serial.println("play track: " + String(currentTrack) + " for secs: " + tracklength);
-    GsheetPost(log_sheet, "INFO;Play track: " + String(currentTrack) + " for secs: " + tracklength);
-    myDFPlayer.volume(volume);
-    myDFPlayer.play(currentTrack);
-    delay(tracklength/2 * 1000); //wait until the half of the track
-    GsheetPost(log_sheet, "INFO;dfplayer status at halftime of the track: "+ String(myDFPlayer.readState()));
-    delay(tracklength/2 * 1000); //wait until the end of the track
-
-    if (myDFPlayer.available())
+    else if (sleeptime < 0LL)
     {
-      printDetail(myDFPlayer.readType(), myDFPlayer.read()); //Print the detail message from DFPlayer to handle different errors and states.
+      delay(300000); //az óra első 5 percében van ez az eset.
+      sleeptime = 0; //FIXME valamiért beragad minuszokba, hátha ez rendbe szedi a változó értékét
     }
-    //stopMp3();
-    //calculate pause between tracks:
-    long calculatedDelay = random(minT, maxT) * 1000;
-    Serial.println("pause play for secs: " + String(calculatedDelay / 1000));
-    GsheetPost(log_sheet, "INFO;Pause play for secs: " + String(calculatedDelay / 1000));
-    delay(calculatedDelay);
   }
+
+  Serial.printf("free heap size: %u\n", ESP.getFreeHeap());
+  //startMp3(mySoftwareSerial); //Ettől recseg
+  int currentTrack = thisHourParams["tracks"][random(0, tracksize)];
+  int minT = thisHourParams["minT"];
+  int maxT = thisHourParams["maxT"];
+  int tracklength = getTrackLength(currentTrack);
+  logPost(TRACK_PLAYED, String(currentTrack) + "-" + String(tracklength));
+  myDFPlayer.volume(volume);
+  myDFPlayer.play(currentTrack);
+  delay(tracklength / 2 * 1000); //wait until the half of the track
+  logDFPlayerMessage();
+  delay(tracklength / 2 * 1000); //wait until the end of the track
+  logDFPlayerMessage();
+ 
+  //calculate pause between tracks:
+  long calculatedDelay = random(minT, maxT) * 1000;
+  logPost(PAUSE_TIME, String(calculatedDelay / 1000));
+  delay(calculatedDelay);
 }
