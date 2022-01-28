@@ -280,11 +280,6 @@ void syncParams()
     paramVersionHere = doc["paramVersion"] | -1;
     logPost(NEW_PLAYPARAM_VER, String(paramVersionHere));
   }
-  else
-  {
-
-    logPost(PLAYPARAM_INVALID,"");
-  }
 };
 
 String getParams()
