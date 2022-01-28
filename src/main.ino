@@ -245,6 +245,7 @@ checks if the daily paramteres need an update
 void syncParams()
 {
  String resp = GETTask(server_url + "/devicePlayParamSelector/selectSlimPlayParam?chipId=" + ESP.getChipId() + "&paramVersion=" + String(paramVersionHere));
+ 
   if (resp.indexOf(F("playParams")) != -1)
   {
     //save to file
@@ -710,6 +711,10 @@ void setup()
   wifiManager.setTimeout(300); //TODO: prepare the device for offline working
   wifiManager.autoConnect("birdnoise_config_accesspoint");
   delay(3000); //give somte time for the Wifi connection
+  Wire.begin(i2cSDAPin, i2cSCLPin);
+  rtc.begin();
+  syncClock();
+  digitalClockDisplay(); //show thwe current time in the terminal
   logPost(START_UP, ver);
 
   updateFunc(name, ver); //checking update
@@ -717,8 +722,7 @@ void setup()
   startMp3(mySoftwareSerial);
 
   LittleFS.begin();
-  Wire.begin(i2cSDAPin, i2cSCLPin);
-  rtc.begin();
+
   if (ESP.getResetReason() != "Deep-Sleep Wake")
   { //kézi újraindításnál, vagy power cyclenél
     syncTrackLength();
@@ -736,8 +740,7 @@ void setup()
 
   }
   Serial.println(F("DFPlayer Mini online."));
-  syncClock();
-  digitalClockDisplay(); //show thwe current time in the terminal
+
 }
 
 void loop()
