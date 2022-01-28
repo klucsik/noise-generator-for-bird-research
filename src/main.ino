@@ -65,15 +65,47 @@ int volume = 10;
 #define PLAYPARAM_INVALID 94
 #define TRACKLENGTH_INVALID 95
 
-void logPost(int messageCode, String additional)
+void saveLog(int messageCode, String additional)
 {
   //save to file
-  
-  //TODO if wifi connected, send logs
-  USE_SERIAL.println("log --- " + String(messageCode) + "; " + additional);
-  String url = server_url + "/deviceLog/save?chipId=" + ESP.getChipId();
-  String payload = "{\"timestamp\":" + String(now()) +", \"messageCode\":\"" + String(messageCode) + String("\", \"additional\":\"") + additional + "\"}";
-  USE_SERIAL.println(POSTTask(url, payload));
+  File file = LittleFS.open(F("/logfile.txt"), "a");
+  file.print(String(now()) + "#" + String(messageCode) + "#" + additional + "\n");
+  file.flush();
+  file.close();
+}
+
+void postLog(){
+  String payload;
+  payload.reserve(1000);
+  File file = LittleFS.open(F("/logfile.txt"), "r");
+  File unsentLogs = LittleFS.open(F("/unsentlogs.txt"), "a");
+  while (file.available()){
+    //read up a logline
+    unsigned long timestamp = file.readStringUntil('#').toInt();
+    Serial.print("timestamp: "+ String(timestamp));
+    int messageCode =  file.readStringUntil('#').toInt();
+    Serial.print(", messageCode: "+ String(messageCode));
+    String additional;
+    additional.reserve(30);
+    additional = file.readStringUntil('\n');
+    Serial.println(", additional: "+ additional);
+    //send logline to server
+    String url = server_url + "/deviceLog/save?chipId=" + ESP.getChipId();
+    payload = "{\"timestamp\":" +  String(timestamp)  +", \"messageCode\":\"" + String(messageCode) + "\", \"additional\":\"" + additional + "\"}";
+    Serial.println(payload);
+    int returend = POSTTask(url, payload);
+    if (returend>399){
+        //if send fails, append the line to unsentlogs
+        Serial.println("log send failed");
+        unsentLogs.println(timestamp + "#" + String(messageCode) + "#" + additional);
+        unsentLogs.flush();
+    }
+
+  }
+  unsentLogs.close();
+  file.close();
+  //delete logfile
+  LittleFS.remove("/logfile.txt");
 }
 
 /**********************************************
@@ -91,7 +123,7 @@ void startMp3(Stream &softSerial)
     USE_SERIAL.println(F("Unable to begin:"));
     USE_SERIAL.println(F("1.Please recheck the connection!"));
     USE_SERIAL.println(F("2.Please insert the SD card!"));
-    logPost( DFPLAYER_START_ERROR,"");
+    saveLog( DFPLAYER_START_ERROR,"");
 
   }
 }
@@ -133,8 +165,8 @@ void syncClock()
     setSyncProvider(rtc.get);
   }
   void digitalClockDisplay();
-  logPost(INNER_NOW, String(now()));
-  logPost(RTC_NOW, String(rtc.get()));
+  saveLog(INNER_NOW, String(now()));
+  saveLog(RTC_NOW, String(rtc.get()));
 };
 
 void printDigits(int digits)
@@ -253,7 +285,7 @@ void syncParams()
     if (!file)
     {
       USE_SERIAL.println(F("file open failed"));
-      logPost(FILE_OPEN_ERROR,"p");
+      saveLog(FILE_OPEN_ERROR,"p");
     }
     else
     {
@@ -268,7 +300,7 @@ void syncParams()
       else
       {
         Serial.println(F("File write failed"));
-        logPost( FILE_WRITE_FAIL,"p");
+        saveLog( FILE_WRITE_FAIL,"p");
       }
 
       file.close();
@@ -278,12 +310,7 @@ void syncParams()
     deserializeJson(doc, getParams());
     JsonObject object;
     paramVersionHere = doc["paramVersion"] | -1;
-    logPost(NEW_PLAYPARAM_VER, String(paramVersionHere));
-  }
-  else
-  {
-
-    logPost(PLAYPARAM_INVALID,"");
+    saveLog(NEW_PLAYPARAM_VER, String(paramVersionHere));
   }
 };
 
@@ -292,7 +319,7 @@ String getParams()
   File file = LittleFS.open("/playParams.json", "r");
   if (!file)
   {
-    logPost( FILE_OPEN_ERROR,"p");
+    saveLog( FILE_OPEN_ERROR,"p");
     return "";
   }
   else
@@ -341,7 +368,7 @@ void syncTrackLength()
     File file = LittleFS.open(F("/trackLengths.json"), "w");
     if (!file)
     {
-      logPost(FILE_OPEN_ERROR,"t");
+      saveLog(FILE_OPEN_ERROR,"t");
     }
     else
     {
@@ -353,7 +380,7 @@ void syncTrackLength()
       }
       else
       {
-        logPost(FILE_WRITE_FAIL, "t");
+        saveLog(FILE_WRITE_FAIL, "t");
       }
 
       file.close();
@@ -361,7 +388,7 @@ void syncTrackLength()
   }
   else
   {
-    logPost( TRACKLENGTH_INVALID,"t");
+    saveLog( TRACKLENGTH_INVALID,"t");
   }
 }
 
@@ -374,7 +401,7 @@ int getTrackLength(int tracknumber)
   File file = LittleFS.open(F("/trackLengths.json"), "r");
   if (!file)
   {
-    logPost(FILE_OPEN_ERROR,"t");
+    saveLog(FILE_OPEN_ERROR,"t");
     return 120;
   }
   else
@@ -471,7 +498,7 @@ void logDFPlayerMessage()
   {
     if (myDFPlayer.readType() == DFPlayerError)
     {
-      logPost(DF_PLAYER_MESSAGE, String(myDFPlayer.readState()) + "-" + myDFPlayer.readType() + "-" + myDFPlayer.read());
+      saveLog(DF_PLAYER_MESSAGE, String(myDFPlayer.readState()) + "-" + myDFPlayer.readType() + "-" + myDFPlayer.read());
     }
   }
 }
@@ -641,7 +668,7 @@ String GETTask(String url)
   return "";
 };
 
-String POSTTask(String url, String payload)
+int POSTTask(String url, String payload)
 {
   WiFiClient client;
   HTTPClient http;
@@ -667,15 +694,16 @@ String POSTTask(String url, String payload)
       {
         String payload = http.getString();
         http.end();
-        return payload;
+        return httpCode;
       }
     }
     else
     {
       USE_SERIAL.print(F("[HTTPS] POST... failed, error: "));
       USE_SERIAL.println(httpCode);
+      USE_SERIAL.println(" " + http.getString());
       http.end();
-      return "";
+      return httpCode;
     }
 
     http.end();
@@ -683,9 +711,9 @@ String POSTTask(String url, String payload)
   else
   {
     USE_SERIAL.println(F("[HTTPS] Unable to connect"));
-    return "";
+    return 0;
   }
-  return "";
+  return 0;
 };
 
 /**************end of section********************/
@@ -710,19 +738,16 @@ void setup()
   WiFiManager wifiManager;
   wifiManager.setTimeout(300); //TODO: prepare the device for offline working
   wifiManager.autoConnect("birdnoise_config_accesspoint");
+
   delay(3000); //give somte time for the Wifi connection
   Wire.begin(i2cSDAPin, i2cSCLPin);
   rtc.begin();
   syncClock();
   digitalClockDisplay(); //show thwe current time in the terminal
-  logPost(START_UP, ver);
-
-  
-
   startMp3(mySoftwareSerial);
-
   LittleFS.begin();
 
+  saveLog(START_UP, ver);
   if (ESP.getResetReason() != "Deep-Sleep Wake")
   { //kézi újraindításnál, vagy power cyclenél
     syncTrackLength();
@@ -747,6 +772,8 @@ void loop()
 {
   Serial.println(F("begining of main loop"));
   delay(100);
+  Serial.println("logfile content:");
+  postLog();
 
   if (minute() < 5)
   {
@@ -758,7 +785,7 @@ void loop()
       syncParams();
       delay(1000);
       syncTrackLength();
-      logPost(CURRENT_PLAYPARAM, String(paramVersionHere));
+      saveLog(CURRENT_PLAYPARAM, String(paramVersionHere));
       hourlySetupFlag = true;
     }
   }
@@ -779,7 +806,7 @@ void loop()
     sprintf(str, "%lld", sleeptime);
     if (sleeptime > 0LL && sleeptime < 3600000LL)
     {
-      logPost(SLEEP, String(59 - minute()));
+      saveLog(SLEEP, String(59 - minute()));
       delay(sleeptime);
     }
     else if (sleeptime < 0LL)
@@ -794,7 +821,7 @@ void loop()
   int minT = thisHourParams["minT"];
   int maxT = thisHourParams["maxT"];
   int tracklength = getTrackLength(currentTrack);
-  logPost(TRACK_PLAYED, String(currentTrack) + "-" + String(tracklength));
+  saveLog(TRACK_PLAYED, String(currentTrack) + "-" + String(tracklength));
   myDFPlayer.volume(volume);
   myDFPlayer.play(currentTrack);
   delay(tracklength / 2 * 1000); //wait until the half of the track
@@ -804,6 +831,6 @@ void loop()
  
   //calculate pause between tracks:
   long calculatedDelay = random(minT, maxT) * 1000;
-  logPost(PAUSE_TIME, String(calculatedDelay / 1000));
+  saveLog(PAUSE_TIME, String(calculatedDelay / 1000));
   delay(calculatedDelay);
 }
