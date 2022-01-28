@@ -54,7 +54,7 @@ int volume = 10;
 #define INNER_NOW 5
 #define NEW_PLAYPARAM_VER 6
 #define START_UP 7 //version 
-#define DEEP_SLEEP 9 //sleep minutes
+#define SLEEP 9 //sleep minutes
 #define CURRENT_PLAYPARAM 10 
 #define DF_PLAYER_MESSAGE 11
 //MessageCodes:
@@ -717,7 +717,7 @@ void setup()
   digitalClockDisplay(); //show thwe current time in the terminal
   logPost(START_UP, ver);
 
-  updateFunc(name, ver); //checking update
+  
 
   startMp3(mySoftwareSerial);
 
@@ -774,18 +774,17 @@ void loop()
   int tracksize = thisHourParams["tracks"].size();
   if (tracksize < 1)
   {
-    long long sleeptime = (59 - minute()) * 60 * 1000 * 1000;
+    long long sleeptime = (59 - minute()) * 60 * 1000;
     char str[256];
     sprintf(str, "%lld", sleeptime);
-    if (sleeptime > 0LL && sleeptime < 3600000000LL)
+    if (sleeptime > 0LL && sleeptime < 3600000LL)
     {
-      logPost(DEEP_SLEEP, String(59 - minute()));
-      ESP.deepSleep(sleeptime);
+      logPost(SLEEP, String(59 - minute()));
+      delay(sleeptime);
     }
     else if (sleeptime < 0LL)
     {
       delay(300000); //az óra első 5 percében van ez az eset.
-      sleeptime = 0; //FIXME valamiért beragad minuszokba, hátha ez rendbe szedi a változó értékét
     }
   }
 
