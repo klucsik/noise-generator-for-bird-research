@@ -350,7 +350,11 @@ JsonObject getPlayParams()
   paramVersionHere = doc["paramVersion"] | -1;
   volume = doc["vol"] | 15;
   USE_SERIAL.println("this hour is: " + String(currentHour));
-
+  if (doc["playParams"].size()<1)
+  { 
+    Serial.println("No playUnits in PlayParam");
+    return object;
+  }
   for (int i = 0; i < 24; i++)
   {
     object = doc["playParams"][i];
@@ -361,6 +365,7 @@ JsonObject getPlayParams()
   USE_SERIAL.println(F("hourly config:"));
   serializeJsonPretty(object, USE_SERIAL);
   Serial.println();
+
   return object;
 }
 
@@ -747,7 +752,7 @@ void setup()
     {
       Serial.println(WiFi.SSID(i));
     }
-    
+
     delay(1000);
     if (WiFi.status() != WL_CONNECTED)
     {
