@@ -9,7 +9,7 @@ Config conf;
 Secrets sec;
 
 static String name = conf.name;
-static String ver = "0_13";
+static String ver = "0_14";
 
 const String update_server = sec.update_server; //at this is url is the python flask update server, which I wrote
 const String server_url = conf.server_url;
@@ -752,8 +752,11 @@ void setup()
     {
       Serial.println(WiFi.SSID(i));
     }
-
-    delay(1000);
+    //connect to fix networks here with WiFiMulti. This will ovberride the saved network in wifiManager, so only uncomment this when its okay to reconnect with wifimanager on every boot
+    //WiFiMulti.addAP("ssid","pass"); //office
+    //WiFiMulti.addAP("ssid","pass"); //logcollector
+    //WiFiMulti.run();
+    //delay(1000);
     if (WiFi.status() != WL_CONNECTED)
     {
       WiFiManager wifiManager;
@@ -790,7 +793,7 @@ void setup()
 void loop()
 {
   Serial.println(F("begining of main loop"));
-  delay(100);
+  delay(1000); //if there is no track, there will be a lot of logs. This will prevent to make logs every ms or so.
   if (WiFi.status() == WL_CONNECTED)
   {
     postLog("/logfile1.txt", "/logfile2.txt");
@@ -823,7 +826,7 @@ void loop()
   int tracksize = thisHourParams["tracks"].size();
   if (tracksize < 1)
   {
-    long long sleeptime = (59 - minute()) * 60 * 1000;
+    long long sleeptime = (59 - minute() + 2) * 60 * 1000; //wait until next hour first minutes
     char str[256];
     sprintf(str, "%lld", sleeptime);
     if (sleeptime > 0LL && sleeptime < 3600000LL)
