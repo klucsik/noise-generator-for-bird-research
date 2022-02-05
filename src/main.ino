@@ -108,6 +108,17 @@ void postLog(String logfilename, String unsentlogfilename)
       unsentLogs.print(timestamp + "#" + String(messageCode) + "#" + additional + "\n");
       unsentLogs.flush();
     }
+
+    //send logs to logCollector
+    String line;
+    line.reserve(30);
+    line = file.readStringUntil('\n');
+    line.trim();
+    String collectorURL;
+    collectorURL.reserve(300);
+    collectorURL = "http://192.168.0.200:80/sendLog?chipId=" + String(ESP.getChipId()) + "&log=" + String(timestamp) + "#" + String(messageCode) + "#" + additional;
+    String getreturn = GETTask(collectorURL);
+    USE_SERIAL.println(getreturn);
   }
   unsentLogs.close();
   file.close();
