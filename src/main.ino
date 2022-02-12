@@ -13,6 +13,7 @@ static String ver = "0_13";
 
 const String update_server = sec.update_server; //at this is url is the python flask update server, which I wrote
 const String server_url = conf.server_url;
+const String logcollector_url = conf.logcollector_url;
 
 #define USE_SERIAL Serial
 
@@ -97,10 +98,9 @@ void postLog(String logfilename, String unsentlogfilename)
     additional.trim();
     Serial.println(", additional: " + additional);
     //send logline to server
-    String url = server_url + "/deviceLog/save?chipId=" + ESP.getChipId();
-    payload = "{\"timestamp\":" + String(timestamp) + ", \"messageCode\":\"" + String(messageCode) + "\", \"additional\":\"" + additional + "\"}";
-    Serial.println(payload);
-    int returned = POSTTask(url, payload);
+    String collectorURL = logcollector_url + "/sendLog?chipId=" + String(ESP.getChipId()) + "&log=" + String(timestamp) + "#" + String(messageCode) + "#" + additional;
+    String getreturn = GETTask(collectorURL);
+    int returned = StatusOnlyGetTask(collectorURL);
     if (returned > 399 || returned < 0)
     {
       //if send fails, append the line to unsentlogs
@@ -108,17 +108,6 @@ void postLog(String logfilename, String unsentlogfilename)
       unsentLogs.print(timestamp + "#" + String(messageCode) + "#" + additional + "\n");
       unsentLogs.flush();
     }
-
-    //send logs to logCollector
-    String line;
-    line.reserve(30);
-    line = file.readStringUntil('\n');
-    line.trim();
-    String collectorURL;
-    collectorURL.reserve(300);
-    collectorURL = "http://192.168.0.200:80/sendLog?chipId=" + String(ESP.getChipId()) + "&log=" + String(timestamp) + "#" + String(messageCode) + "#" + additional;
-    String getreturn = GETTask(collectorURL);
-    USE_SERIAL.println(getreturn);
   }
   unsentLogs.close();
   file.close();
@@ -646,7 +635,7 @@ String GETTask(String url)
   HTTPClient http;
   if (http.begin(client, url))
   {
-    USE_SERIAL.print(F("[HTTPS] GET "));
+    USE_SERIAL.print(F("[HTTP] GET "));
     USE_SERIAL.println(url);
 
     int httpCode = http.GET();
@@ -654,7 +643,7 @@ String GETTask(String url)
     // httpCode will be negative on error
     if (httpCode > 0)
     {
-      USE_SERIAL.printf("[HTTPS] GET... code: %d\n", httpCode);
+      USE_SERIAL.printf("[HTTP] GET... code: %d\n", httpCode);
       if (httpCode == 302)
       {
         String redirectUrl = http.getLocation();
@@ -672,7 +661,7 @@ String GETTask(String url)
     }
     else
     {
-      USE_SERIAL.print(F("[HTTPS] GET... failed, error: "));
+      USE_SERIAL.print(F("[HTTP] GET... failed, error: "));
       USE_SERIAL.println(httpCode);
       http.end();
       return "";
@@ -682,59 +671,45 @@ String GETTask(String url)
   }
   else
   {
-    USE_SERIAL.println(F("[HTTPS] Unable to connect"));
+    USE_SERIAL.println(F("[HTTP] Unable to connect"));
     return "";
   }
   return "";
 };
 
-int POSTTask(String url, String payload)
-{
+
+int StatusOnlyGetTask(String url){
   WiFiClient client;
   HTTPClient http;
   if (http.begin(client, url))
   {
-    USE_SERIAL.print(F("[HTTPS] POST "));
-    USE_SERIAL.print(url);
-    USE_SERIAL.print(" --> ");
-    USE_SERIAL.println(payload);
-    http.addHeader(F("Content-Type"), F("application/json"));
+    USE_SERIAL.print(F("[HTTP] GET (statuscode only) "));
+    USE_SERIAL.println(url);
 
-    int httpCode = http.POST(payload);
+    int httpCode = http.GET();
 
     // httpCode will be negative on error
     if (httpCode > 0)
     {
-      // HTTP header has been send and Server response header has been handled
-      USE_SERIAL.print(F("[HTTPS] POST... code: "));
-      USE_SERIAL.println(httpCode);
-
-      // file found at server
-      if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY)
-      {
-        String payload = http.getString();
-        http.end();
-        return httpCode;
-      }
+      USE_SERIAL.printf("[HTTP] GET... code: %d\n", httpCode);
+      return httpCode;
     }
     else
     {
-      USE_SERIAL.print(F("[HTTPS] POST... failed, error: "));
+      USE_SERIAL.print(F("[HTTP] GET... failed, error: "));
       USE_SERIAL.println(httpCode);
-      USE_SERIAL.println(" " + http.getString());
       http.end();
-      return httpCode;
+      return 998;
     }
 
     http.end();
   }
   else
   {
-    USE_SERIAL.println(F("[HTTPS] Unable to connect"));
+    USE_SERIAL.println(F("[HTTP] Unable to connect"));
     return 999;
   }
-  return 999;
-};
+}
 
 /**************end of section********************/
 
