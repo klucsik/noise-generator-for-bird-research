@@ -158,7 +158,7 @@ unsigned int localPort = 8888;
 
 void syncClock()
 {
-  if (WiFi.status() == WL_CONNECTED)
+  if (WiFi.status() == WL_CONNECTED && WiFi.SSID() != "logcollector-access-point")
   {
     USE_SERIAL.println(F("Synchronizing inner clock..."));
     Udp.begin(localPort);
@@ -763,14 +763,20 @@ void setup()
     {
       Serial.println(WiFi.SSID(i));
     }
-
     delay(1000);
+    //connect to fix networks here with WiFiMulti. This will ovberride the saved network in wifiManager, so only uncomment this when its okay to reconnect with wifimanager on every boot
+    WiFi.mode(WIFI_STA);
+    //WiFiMulti.addAP("ssid","pass"); //office
+    WiFiMulti.addAP("logcollector-access-point","testpass"); //logcollector
+    WiFiMulti.run();
+    //delay(1000);
     if (WiFi.status() != WL_CONNECTED)
     {
       WiFiManager wifiManager;
       wifiManager.setTimeout(60); //TODO: prepare the device for offline working
       wifiManager.autoConnect("birdnoise_config_accesspoint");
     }
+    WiFiMulti.run(5000);
     delay(1000); //give somte time for the Wifi connection
   }
   Wire.begin(i2cSDAPin, i2cSCLPin);
@@ -802,6 +808,16 @@ void loop()
 {
   Serial.println(F("begining of main loop"));
   delay(100);
+
+  // Maintain WiFi connection
+  if (WiFiMulti.run(5000) == WL_CONNECTED) {
+    Serial.print("WiFi connected: ");
+    Serial.print(WiFi.SSID());
+    Serial.print(" ");
+    Serial.println(WiFi.localIP());
+  }
+
+  delay(1000); //if there is no track, there will be a lot of logs. This will prevent to make logs every ms or so.
   if (WiFi.status() == WL_CONNECTED)
   {
     postLog("/logfile1.txt", "/logfile2.txt");
