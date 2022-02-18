@@ -1,5 +1,5 @@
 /***************************************************
-Noise generator for birds 
+Noise generator for birds
 Written by Krisztián Pál Klucsik
  ***************************************************/
 
@@ -9,15 +9,15 @@ Config conf;
 Secrets sec;
 
 static String name = conf.name;
-static String ver = "0_13";
+static String ver = "0_14";
 
-const String update_server = sec.update_server; //at this is url is the python flask update server, which I wrote
+const String update_server = sec.update_server; // at this is url is the python flask update server, which I wrote
 const String server_url = conf.server_url;
 const String logcollector_url = conf.logcollector_url;
 
 #define USE_SERIAL Serial
 
-//pin configuration
+// pin configuration
 #define mp3RxPin D1
 #define mp3TxPin D5
 #define i2cSDAPin D6
@@ -44,22 +44,23 @@ WiFiClient client;
 #include <DS3232RTC.h> // https://github.com/JChristensen/DS3232RTC
 DS3232RTC rtc;
 int volume = 10;
+static char* LOG_COLLCETOR_SSID = "logcollector-access-point";
 /**********************************************
              Logging
 
 ***********************************************/
-//content types
-#define TRACK_PLAYED 2 //tracknumber-tracklength
+// content types
+#define TRACK_PLAYED 2 // tracknumber-tracklength
 #define PAUSE_TIME 3
 #define RTC_NOW 4
 #define INNER_NOW 5
 #define NEW_PLAYPARAM_VER 6
-#define START_UP 7 //version
-#define SLEEP 9    //sleep minutes
+#define START_UP 7 // version
+#define SLEEP 9    // sleep minutes
 #define CURRENT_PLAYPARAM 10
 #define DF_PLAYER_MESSAGE 11
-//MessageCodes:
-//  errors:
+// MessageCodes:
+//   errors:
 #define DFPLAYER_START_ERROR 91
 #define FILE_OPEN_ERROR 92
 #define FILE_WRITE_FAIL 93
@@ -71,12 +72,24 @@ void saveLog(int messageCode, String additional)
   Serial.print("timestamp: " + String(now()));
   Serial.print(", messageCode: " + String(messageCode));
   Serial.println(", additional: " + additional);
-  //save to file
+
+  //send directly to server if available
+  if (WiFi.status() == WL_CONNECTED && WiFi.SSID() != String(LOG_COLLCETOR_SSID))
+  {
+    String url = server_url + "/deviceLog/save?chipId=" +String(ESP.getChipId());
+    String payload = "{\"timestamp\":" + String(now()) + ", \"messageCode\":\"" + String(messageCode) + "\", \"additional\":\"" + additional + "\"}";
+    Serial.println(payload);
+    int returned = POSTTask(url, payload);
+  }
+  else
+  {
+  // save to file
   additional.trim();
   File file = LittleFS.open(F("/logfile1.txt"), "a");
   file.print(String(now()) + "#" + String(messageCode) + "#" + additional + "\n");
   file.flush();
   file.close();
+  }
 }
 
 void postLog(String logfilename, String unsentlogfilename)
@@ -87,7 +100,7 @@ void postLog(String logfilename, String unsentlogfilename)
   File unsentLogs = LittleFS.open(unsentlogfilename, "a");
   while (file.available())
   {
-    //read up a logline
+    // read up a logline
     unsigned long timestamp = file.readStringUntil('#').toInt();
     Serial.print("timestamp: " + String(timestamp));
     int messageCode = file.readStringUntil('#').toInt();
@@ -97,13 +110,13 @@ void postLog(String logfilename, String unsentlogfilename)
     additional = file.readStringUntil('\n');
     additional.trim();
     Serial.println(", additional: " + additional);
-    //send logline to server
+    // send logline to server
     String collectorURL = logcollector_url + "/sendLog?chipId=" + String(ESP.getChipId()) + "&log=" + String(timestamp) + "#" + String(messageCode) + "#" + additional;
     String getreturn = GETTask(collectorURL);
     int returned = StatusOnlyGetTask(collectorURL);
     if (returned > 399 || returned < 0)
     {
-      //if send fails, append the line to unsentlogs
+      // if send fails, append the line to unsentlogs
       Serial.println("log send failed");
       unsentLogs.print(timestamp + "#" + String(messageCode) + "#" + additional + "\n");
       unsentLogs.flush();
@@ -111,7 +124,7 @@ void postLog(String logfilename, String unsentlogfilename)
   }
   unsentLogs.close();
   file.close();
-  //delete logfile
+  // delete logfile
   LittleFS.remove(logfilename);
 }
 
@@ -147,7 +160,7 @@ unsigned int localPort = 8888;
 
 void syncClock()
 {
-  if (WiFi.status() == WL_CONNECTED && WiFi.SSID() != "logcollector-access-point")
+  if (WiFi.status() == WL_CONNECTED && WiFi.SSID() != String(LOG_COLLCETOR_SSID))
   {
     USE_SERIAL.println(F("Synchronizing inner clock..."));
     Udp.begin(localPort);
@@ -200,7 +213,7 @@ void digitalClockDisplay()
 }
 
 const int NTP_PACKET_SIZE = 48;     // NTP time is in the first 48 bytes of message
-byte packetBuffer[NTP_PACKET_SIZE]; //buffer to hold incoming & outgoing packets
+byte packetBuffer[NTP_PACKET_SIZE]; // buffer to hold incoming & outgoing packets
 
 time_t getNtpTime()
 {
@@ -254,7 +267,7 @@ void sendNTPpacket(IPAddress &address)
   packetBuffer[15] = 52;
   // all NTP fields have been given values, now
   // you can send a packet requesting a timestamp:
-  Udp.beginPacket(address, 123); //NTP requests are to port 123
+  Udp.beginPacket(address, 123); // NTP requests are to port 123
   Udp.write(packetBuffer, NTP_PACKET_SIZE);
   Udp.endPacket();
 }
@@ -262,7 +275,7 @@ void sendNTPpacket(IPAddress &address)
 
 String getBatteryVoltage()
 {
-  //TODO
+  // TODO
   return "0.666";
 }
 
@@ -286,7 +299,7 @@ void syncParams()
 
   if (resp.indexOf(F("playParams")) != -1)
   {
-    //save to file
+    // save to file
     File file = LittleFS.open(F("/playParams.json"), "w");
     if (!file)
     {
@@ -339,19 +352,19 @@ String getParams()
 /*
 returns the object for the current hours play parameters (which tracks, pause times between tracks) from the global json object
 */
-DynamicJsonDocument doc(5000); //8knál már nem mennek a get requestek
+DynamicJsonDocument doc(5000); // 8knál már nem mennek a get requestek
 JsonObject getPlayParams()
 {
   Serial.println(F("Getplayparams"));
 
-  int currentHour = hour(); //TODO: get time from the GSM module
+  int currentHour = hour(); // TODO: get time from the GSM module
   deserializeJson(doc, getParams());
   JsonObject object;
   paramVersionHere = doc["paramVersion"] | -1;
   volume = doc["vol"] | 15;
   USE_SERIAL.println("this hour is: " + String(currentHour));
-  if (doc["playParams"].size()<1)
-  { 
+  if (doc["playParams"].size() < 1)
+  {
     Serial.println("No playUnits in PlayParam");
     return object;
   }
@@ -375,7 +388,7 @@ void syncTrackLength()
   String resp = GETTask(server_url + "/TrackPageSlim/page");
   if (resp.indexOf(F("tracklengths")) != -1)
   {
-    //save to file
+    // save to file
     File file = LittleFS.open(F("/trackLengths.json"), "w");
     if (!file)
     {
@@ -419,15 +432,15 @@ int getTrackLength(int tracknumber)
   {
     String data = file.readString();
     file.close();
-    //Serial.println(data);
+    // Serial.println(data);
     DynamicJsonDocument docPuffer(4000);
     deserializeJson(docPuffer, data);
 
     for (int i = 0; i < 100; i++)
     {
       lengthObject = docPuffer["tracklengths"][i];
-      //USE_SERIAL.println("Processing tracklength record:" );
-      //serializeJsonPretty(lengthObject,USE_SERIAL);
+      // USE_SERIAL.println("Processing tracklength record:" );
+      // serializeJsonPretty(lengthObject,USE_SERIAL);
       if (lengthObject["trackNumber"] == tracknumber)
         break;
     }
@@ -520,7 +533,7 @@ boolean hourlySetupFlag = false;
              webupdate functions - only works with WiFi
 
 ***********************************************/
-void updateFunc(String Name, String Version) //TODO: documentation
+void updateFunc(String Name, String Version) // TODO: documentation
 {
   HTTPClient http;
 
@@ -532,7 +545,7 @@ void updateFunc(String Name, String Version) //TODO: documentation
     USE_SERIAL.print("[HTTP] GET...\n");
     // start connection and send HTTP header
     int httpCode = http.GET();
-    delay(10000); //wait for bootup of the server
+    delay(10000); // wait for bootup of the server
     httpCode = http.GET();
     // httpCode will be negative on error
     if (httpCode > 0)
@@ -561,7 +574,7 @@ void updateFunc(String Name, String Version) //TODO: documentation
   }
 }
 
-void httpUpdateFunc(String update_url) //this is from the core example
+void httpUpdateFunc(String update_url) // this is from the core example
 {
   if ((WiFiMulti.run() == WL_CONNECTED))
   {
@@ -582,7 +595,7 @@ void httpUpdateFunc(String update_url) //this is from the core example
 
     t_httpUpdate_return ret = ESPhttpUpdate.update(client, update_url);
     // Or:
-    //t_httpUpdate_return ret = ESPhttpUpdate.update(client, "server", 80, "file.bin");
+    // t_httpUpdate_return ret = ESPhttpUpdate.update(client, "server", 80, "file.bin");
 
     switch (ret)
     {
@@ -677,8 +690,8 @@ String GETTask(String url)
   return "";
 };
 
-
-int StatusOnlyGetTask(String url){
+int StatusOnlyGetTask(String url)
+{
   WiFiClient client;
   HTTPClient http;
   if (http.begin(client, url))
@@ -711,6 +724,54 @@ int StatusOnlyGetTask(String url){
   }
 }
 
+int POSTTask(String url, String payload) // Make a post request
+{
+  WiFiClient client;
+  HTTPClient http;
+  if (http.begin(client, url))
+  {
+    Serial.print(F("[HTTPS] POST "));
+    Serial.print(url);
+    Serial.print(" --> ");
+    Serial.println(payload);
+    http.addHeader(F("Content-Type"), F("application/json"));
+
+    int httpCode = http.POST(payload);
+
+    // httpCode will be negative on error
+    if (httpCode > 0)
+    {
+      // HTTP header has been send and Server response header has been handled
+      Serial.print(F("[HTTPS] POST... code: "));
+      Serial.println(httpCode);
+
+      // file found at server
+      if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY)
+      {
+        String payload = http.getString();
+        http.end();
+        return httpCode;
+      }
+    }
+    else
+    {
+      Serial.print(F("[HTTPS] POST... failed, error: "));
+      Serial.println(httpCode);
+      Serial.println(" " + http.getString());
+      http.end();
+      return httpCode;
+    }
+
+    http.end();
+  }
+  else
+  {
+    Serial.println(F("[HTTPS] Unable to connect"));
+    return 999;
+  }
+  return 999;
+};
+
 /**************end of section********************/
 
 /**********************************************
@@ -739,31 +800,33 @@ void setup()
       Serial.println(WiFi.SSID(i));
     }
     delay(1000);
-    //connect to fix networks here with WiFiMulti. This will ovberride the saved network in wifiManager, so only uncomment this when its okay to reconnect with wifimanager on every boot
+    // connect to fix networks here with WiFiMulti. This will ovberride the saved network in wifiManager, so only uncomment this when its okay to reconnect with wifimanager on every boot
     WiFi.mode(WIFI_STA);
-    //WiFiMulti.addAP("ssid","pass"); //office
-    WiFiMulti.addAP("logcollector-access-point","testpass"); //logcollector
+    // WiFiMulti.addAP("ssid","pass"); //office
+    WiFiMulti.addAP(LOG_COLLCETOR_SSID, "testpass"); // logcollector
+    WiFiMulti.addAP(sec.SSID_1,sec.pass_1);
+
     WiFiMulti.run();
-    //delay(1000);
+    // delay(1000);
     if (WiFi.status() != WL_CONNECTED)
     {
       WiFiManager wifiManager;
-      wifiManager.setTimeout(60); //TODO: prepare the device for offline working
+      wifiManager.setTimeout(60); // TODO: prepare the device for offline working
       wifiManager.autoConnect("birdnoise_config_accesspoint");
     }
     WiFiMulti.run(5000);
-    delay(1000); //give somte time for the Wifi connection
+    delay(1000); // give somte time for the Wifi connection
   }
   Wire.begin(i2cSDAPin, i2cSCLPin);
   rtc.begin();
   syncClock();
-  digitalClockDisplay(); //show thwe current time in the terminal
+  digitalClockDisplay(); // show thwe current time in the terminal
   startMp3(mySoftwareSerial);
   LittleFS.begin();
 
   saveLog(START_UP, ver);
   if (ESP.getResetReason() != "Deep-Sleep Wake")
-  { //kézi újraindításnál, vagy power cyclenél
+  { // kézi újraindításnál, vagy power cyclenél
     syncTrackLength();
     delay(1000);
     syncParams();
@@ -771,7 +834,7 @@ void setup()
     myDFPlayer.volume(volume);
     myDFPlayer.play(1);
     delay(2000);
-    syncTrackLength(); //tuti, ami biztos
+    syncTrackLength(); // tuti, ami biztos
     delay(1000);
     syncParams();
     myDFPlayer.stop();
@@ -785,15 +848,16 @@ void loop()
   delay(100);
 
   // Maintain WiFi connection
-  if (WiFiMulti.run(5000) == WL_CONNECTED) {
+  if (WiFiMulti.run(5000) == WL_CONNECTED)
+  {
     Serial.print("WiFi connected: ");
     Serial.print(WiFi.SSID());
     Serial.print(" ");
     Serial.println(WiFi.localIP());
   }
 
-  delay(1000); //if there is no track, there will be a lot of logs. This will prevent to make logs every ms or so.
-  if (WiFi.status() == WL_CONNECTED)
+  delay(1000); // if there is no track, there will be a lot of logs. This will prevent to make logs every ms or so.
+  if (WiFi.status() == WL_CONNECTED && WiFi.SSID() == String(LOG_COLLCETOR_SSID) )
   {
     postLog("/logfile1.txt", "/logfile2.txt");
     postLog("/logfile2.txt", "/logfile1.txt");
@@ -801,10 +865,10 @@ void loop()
 
   if (minute() < 5)
   {
-    if (!hourlySetupFlag) //just once do the hourly stuff
+    if (!hourlySetupFlag) // just once do the hourly stuff
     {
       syncClock();
-      updateFunc(name, ver); //checking update
+      updateFunc(name, ver); // checking update
       runHourlyReport();
       syncParams();
       delay(1000);
@@ -818,7 +882,7 @@ void loop()
     hourlySetupFlag = false;
   }
 
-  //main business logic
+  // main business logic
 
   JsonObject thisHourParams = getPlayParams();
 
@@ -835,12 +899,12 @@ void loop()
     }
     else if (sleeptime < 0LL)
     {
-      delay(300000); //az óra első 5 percében van ez az eset.
+      delay(300000); // az óra első 5 percében van ez az eset.
     }
   }
 
   Serial.printf("free heap size: %u\n", ESP.getFreeHeap());
-  //startMp3(mySoftwareSerial); //Ettől recseg
+  // startMp3(mySoftwareSerial); //Ettől recseg
   int currentTrack = thisHourParams["tracks"][random(0, tracksize)];
   int minT = thisHourParams["minT"];
   int maxT = thisHourParams["maxT"];
@@ -848,12 +912,12 @@ void loop()
   saveLog(TRACK_PLAYED, String(currentTrack) + "-" + String(tracklength));
   myDFPlayer.volume(volume);
   myDFPlayer.play(currentTrack);
-  delay(tracklength / 2 * 1000); //wait until the half of the track
+  delay(tracklength / 2 * 1000); // wait until the half of the track
   logDFPlayerMessage();
-  delay(tracklength / 2 * 1000); //wait until the end of the track
+  delay(tracklength / 2 * 1000); // wait until the end of the track
   logDFPlayerMessage();
 
-  //calculate pause between tracks:
+  // calculate pause between tracks:
   long calculatedDelay = random(minT, maxT) * 1000;
   saveLog(PAUSE_TIME, String(calculatedDelay / 1000));
   delay(calculatedDelay);
