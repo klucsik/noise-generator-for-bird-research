@@ -830,7 +830,7 @@ void setup()
 void loop()
 {
   Serial.println(F("begining of main loop"));
-  delay(100);
+delay(1000); //if there is no track, there will be a lot of logs. This will prevent to make logs every ms or so.
 
   // Maintain WiFi connection
   if (WiFiMulti.run(5000) == WL_CONNECTED)
@@ -873,7 +873,7 @@ void loop()
   int tracksize = thisHourParams["tracks"].size();
   if (tracksize < 1)
   {
-    long long sleeptime = (59 - minute()) * 60 * 1000;
+    long long sleeptime = (59 - minute() + 2) * 60 * 1000; //wait until next hour first minutes
     char str[256];
     sprintf(str, "%lld", sleeptime);
     if (sleeptime > 0LL && sleeptime < 3600000LL)
