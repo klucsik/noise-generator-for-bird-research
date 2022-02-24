@@ -175,7 +175,7 @@ void syncClock()
         break;
       }
     }
-
+    rtc.set(now());
     setSyncInterval(3000);
     delay(100);
   }
