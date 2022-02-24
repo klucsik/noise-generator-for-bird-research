@@ -9,7 +9,7 @@ Config conf;
 Secrets sec;
 
 static String name = conf.name;
-static String ver = "0_15";
+static String ver = "0_16";
 
 const String update_server = sec.update_server; // at this is url is the python flask update server, which I wrote
 const String server_url = conf.server_url;
@@ -272,21 +272,6 @@ void sendNTPpacket(IPAddress &address)
   Udp.endPacket();
 }
 /**************end of section********************/
-
-String getBatteryVoltage()
-{
-  // TODO
-  return "0.666";
-}
-
-/*
-reports data to the spreadsheet server
-*/
-void runHourlyReport()
-{
-
-  String resp = GETTask(server_url + "/deviceVoltage/save?chipId=" + ESP.getChipId() + "&voltage=" + getBatteryVoltage());
-};
 
 int paramVersionHere = -2;
 
@@ -869,7 +854,6 @@ void loop()
     {
       syncClock();
       updateFunc(name, ver); // checking update
-      runHourlyReport();
       syncParams();
       delay(1000);
       syncTrackLength();
