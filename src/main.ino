@@ -66,6 +66,7 @@ static char* LOG_COLLCETOR_SSID = "logcollector-access-point";
 #define FILE_WRITE_FAIL 93
 #define PLAYPARAM_INVALID 94
 #define TRACKLENGTH_INVALID 95
+#define FAILED_START 96
 
 void saveLog(int messageCode, String additional)
 {
@@ -825,6 +826,9 @@ void setup()
     myDFPlayer.stop();
   }
   Serial.println(F("DFPlayer Mini online."));
+  if(ESP.getResetReason() == "Exception" && ESP.getResetReason() == "Hardware Watchdog" && ESP.getResetReason() == "Software Watchdog"){
+    saveLog(FAILED_START,String(ESP.getResetInfo()));
+  }
 }
 
 void loop()
