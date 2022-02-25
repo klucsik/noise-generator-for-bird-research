@@ -43,7 +43,7 @@ WiFiClient client;
 
 #include <DS3232RTC.h> // https://github.com/JChristensen/DS3232RTC
 DS3232RTC rtc;
-int volume = 10;
+int volume = 2;
 static char* LOG_COLLCETOR_SSID = "logcollector-access-point";
 /**********************************************
              Logging
@@ -145,6 +145,7 @@ void startMp3(Stream &softSerial)
     USE_SERIAL.println(F("1.Please recheck the connection!"));
     USE_SERIAL.println(F("2.Please insert the SD card!"));
     saveLog(DFPLAYER_START_ERROR, "-");
+    
   }
 }
 /**************end of section********************/
@@ -776,16 +777,26 @@ void setup()
   Serial.print(ver);
   Serial.print(F(" deviceID: "));
   Serial.println(ESP.getChipId());
-
+  Wire.begin(i2cSDAPin, i2cSCLPin);
+  rtc.begin();
+  digitalClockDisplay(); // show thwe current time in the terminal
+  startMp3(mySoftwareSerial);
+  LittleFS.begin();
+ if (ESP.getResetReason() != "Deep-Sleep Wake")
+  { // kézi újraindításnál, vagy power cyclenél
+    Serial.println(F("Showing of sound skills for humans"));
+    myDFPlayer.volume(2);
+    myDFPlayer.play(1);
+  }
   int numberOfNetworks = WiFi.scanNetworks();
-  delay(1000);
+  delay(100);
   if (numberOfNetworks > 0)
   {
     for (int i = 0; i < numberOfNetworks; i++)
     {
       Serial.println(WiFi.SSID(i));
     }
-    delay(1000);
+    delay(100);
     // connect to fix networks here with WiFiMulti. This will ovberride the saved network in wifiManager, so only uncomment this when its okay to reconnect with wifimanager on every boot
     WiFi.mode(WIFI_STA);
     // WiFiMulti.addAP("ssid","pass"); //office
@@ -803,32 +814,22 @@ void setup()
     WiFiMulti.run(5000);
     delay(1000); // give somte time for the Wifi connection
   }
-  Wire.begin(i2cSDAPin, i2cSCLPin);
-  rtc.begin();
   syncClock();
-  digitalClockDisplay(); // show thwe current time in the terminal
-  startMp3(mySoftwareSerial);
-  LittleFS.begin();
 
   saveLog(START_UP, ver);
   if (ESP.getResetReason() != "Deep-Sleep Wake")
   { // kézi újraindításnál, vagy power cyclenél
     syncTrackLength();
-    delay(1000);
     syncParams();
-    Serial.println(F("Showing of sound skills for humans"));
-    myDFPlayer.volume(volume);
-    myDFPlayer.play(1);
-    delay(2000);
+    delay(1000);
     syncTrackLength(); // tuti, ami biztos
     delay(1000);
     syncParams();
-    myDFPlayer.stop();
   }
-  Serial.println(F("DFPlayer Mini online."));
   if(ESP.getResetReason() == "Exception" && ESP.getResetReason() == "Hardware Watchdog" && ESP.getResetReason() == "Software Watchdog"){
     saveLog(FAILED_START,String(ESP.getResetInfo()));
   }
+  myDFPlayer.stop();
 }
 
 void loop()
