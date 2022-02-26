@@ -799,18 +799,9 @@ void setup()
     delay(100);
     // connect to fix networks here with WiFiMulti. This will ovberride the saved network in wifiManager, so only uncomment this when its okay to reconnect with wifimanager on every boot
     WiFi.mode(WIFI_STA);
-    // WiFiMulti.addAP("ssid","pass"); //office
     WiFiMulti.addAP(LOG_COLLCETOR_SSID, "testpass"); // logcollector
     WiFiMulti.addAP(sec.SSID_1,sec.pass_1);
     WiFiMulti.addAP(sec.SSID_2,sec.pass_2);
-    WiFiMulti.run();
-    // delay(1000);
-    if (WiFi.status() != WL_CONNECTED)
-    {
-      WiFiManager wifiManager;
-      wifiManager.setTimeout(60); // TODO: prepare the device for offline working
-      wifiManager.autoConnect("birdnoise_config_accesspoint");
-    }
     WiFiMulti.run(5000);
     delay(1000); // give somte time for the Wifi connection
   }
