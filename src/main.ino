@@ -816,6 +816,7 @@ void setup()
     syncTrackLength(); // tuti, ami biztos
     delay(1000);
     syncParams();
+    updateFunc(name, ver); // checking update
   }
   if(ESP.getResetReason() == "Exception" && ESP.getResetReason() == "Hardware Watchdog" && ESP.getResetReason() == "Software Watchdog"){
     saveLog(FAILED_START,String(ESP.getResetInfo()));
