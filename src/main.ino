@@ -9,7 +9,7 @@ Config conf;
 Secrets sec;
 
 static String name = conf.name;
-static String ver = "1_0";
+static String ver = "1_1";
 
 const String update_server = sec.update_server; // at this is url is the python flask update server, which I wrote
 const String server_url = conf.server_url;
@@ -156,7 +156,9 @@ void startMp3(Stream &softSerial)
 ***********************************************/
 // NTP Servers:
 static const char ntpServerName[] = "us.pool.ntp.org";
-const int timeZone = 1;
+const int timeZone = 0; // UTC
+//const int timeZone = 1;     // Central European Time
+//const int timeZone = -5;  // Eastern Standard Time (USA)
 WiFiUDP Udp;
 unsigned int localPort = 8888;
 
@@ -779,7 +781,7 @@ void setup()
   Serial.println(ESP.getChipId());
   Wire.begin(i2cSDAPin, i2cSCLPin);
   rtc.begin();
-  digitalClockDisplay(); // show thwe current time in the terminal
+
   startMp3(mySoftwareSerial);
   LittleFS.begin();
  if (ESP.getResetReason() != "Deep-Sleep Wake")
@@ -806,7 +808,7 @@ void setup()
     delay(1000); // give somte time for the Wifi connection
   }
   syncClock();
-
+  digitalClockDisplay(); // show thwe current time in the terminal
   saveLog(START_UP, ver);
   if (ESP.getResetReason() != "Deep-Sleep Wake")
   { // kézi újraindításnál, vagy power cyclenél
