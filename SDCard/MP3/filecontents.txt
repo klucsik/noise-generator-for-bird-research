@@ -1,0 +1,8 @@
+messages:
+0245 - error
+0246 - sending logs
+0247 - setup finished
+0248 - updating
+0249 - started, setup
+0250 - connected
+0251 - connected to logcollector

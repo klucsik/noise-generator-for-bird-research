@@ -9,7 +9,7 @@ Config conf;
 Secrets sec;
 
 static String name = conf.name;
-static String ver = "1_1";
+static String ver = "1_3";
 
 const String update_server = sec.update_server; // at this is url is the python flask update server, which I wrote
 const String server_url = conf.server_url;
@@ -40,11 +40,19 @@ WiFiClient client;
 #include "LittleFS.h"
 
 #include <Wire.h>
-
 #include <DS3232RTC.h> // https://github.com/JChristensen/DS3232RTC
 DS3232RTC rtc;
+
+#define AUDIO_ERROR 245
+#define AUDIO_SENDING_LOGS 246
+#define AUDIO_SETUP_FINISHED 247
+#define AUDIO_UPDATING 248
+#define AUDIO_STARTED_SETUP 249
+#define AUDIO_CONNECTED 250
+#define AUDIO_CONNECTED_TO_LOGCOLLECTOR 251
+
 int volume = 2;
-static char* LOG_COLLCETOR_SSID = "logcollector-access-point";
+static char *LOG_COLLECTOR_SSID = "logcollector-access-point";
 /**********************************************
              Logging
 
@@ -74,22 +82,22 @@ void saveLog(int messageCode, String additional)
   Serial.print(", messageCode: " + String(messageCode));
   Serial.println(", additional: " + additional);
 
-  //send directly to server if available
-  if (WiFi.status() == WL_CONNECTED && WiFi.SSID() != String(LOG_COLLCETOR_SSID))
+  // send directly to server if available
+  if (WiFi.status() == WL_CONNECTED && WiFi.SSID() != String(LOG_COLLECTOR_SSID))
   {
-    String url = server_url + "/deviceLog/save?chipId=" +String(ESP.getChipId());
+    String url = server_url + "/deviceLog/save?chipId=" + String(ESP.getChipId());
     String payload = "{\"timestamp\":" + String(now()) + ", \"messageCode\":\"" + String(messageCode) + "\", \"additional\":\"" + additional + "\"}";
     Serial.println(payload);
     int returned = POSTTask(url, payload);
   }
   else
   {
-  // save to file
-  additional.trim();
-  File file = LittleFS.open(F("/logfile1.txt"), "a");
-  file.print(String(now()) + "#" + String(messageCode) + "#" + additional + "\n");
-  file.flush();
-  file.close();
+    // save to file
+    additional.trim();
+    File file = LittleFS.open(F("/logfile1.txt"), "a");
+    file.print(String(now()) + "#" + String(messageCode) + "#" + additional + "\n");
+    file.flush();
+    file.close();
   }
 }
 
@@ -145,7 +153,6 @@ void startMp3(Stream &softSerial)
     USE_SERIAL.println(F("1.Please recheck the connection!"));
     USE_SERIAL.println(F("2.Please insert the SD card!"));
     saveLog(DFPLAYER_START_ERROR, "-");
-    
   }
 }
 /**************end of section********************/
@@ -157,14 +164,14 @@ void startMp3(Stream &softSerial)
 // NTP Servers:
 static const char ntpServerName[] = "us.pool.ntp.org";
 const int timeZone = 0; // UTC
-//const int timeZone = 1;     // Central European Time
-//const int timeZone = -5;  // Eastern Standard Time (USA)
+// const int timeZone = 1;     // Central European Time
+// const int timeZone = -5;  // Eastern Standard Time (USA)
 WiFiUDP Udp;
 unsigned int localPort = 8888;
 
 void syncClock()
 {
-  if (WiFi.status() == WL_CONNECTED && WiFi.SSID() != String(LOG_COLLCETOR_SSID))
+  if (WiFi.status() == WL_CONNECTED && WiFi.SSID() != String(LOG_COLLECTOR_SSID))
   {
     USE_SERIAL.println(F("Synchronizing inner clock..."));
     Udp.begin(localPort);
@@ -567,7 +574,8 @@ void httpUpdateFunc(String update_url) // this is from the core example
 {
   if ((WiFiMulti.run() == WL_CONNECTED))
   {
-
+    myDFPlayer.volume(10);
+    myDFPlayer.playMp3Folder(AUDIO_UPDATING);
     // The line below is optional. It can be used to blink the LED on the board during flashing
     // The LED will be on during download of one buffer of data from the network. The LED will
     // be off during writing that buffer to flash
@@ -784,11 +792,12 @@ void setup()
 
   startMp3(mySoftwareSerial);
   LittleFS.begin();
- if (ESP.getResetReason() != "Deep-Sleep Wake")
+  if (ESP.getResetReason() != "Deep-Sleep Wake")
   { // kézi újraindításnál, vagy power cyclenél
     Serial.println(F("Showing of sound skills for humans"));
-    myDFPlayer.volume(2);
-    myDFPlayer.play(1);
+    myDFPlayer.volume(10);
+    myDFPlayer.playMp3Folder(AUDIO_STARTED_SETUP);
+    delay(1000);
   }
   int numberOfNetworks = WiFi.scanNetworks();
   delay(100);
@@ -801,10 +810,14 @@ void setup()
     delay(100);
     // connect to fix networks here with WiFiMulti. This will ovberride the saved network in wifiManager, so only uncomment this when its okay to reconnect with wifimanager on every boot
     WiFi.mode(WIFI_STA);
-    WiFiMulti.addAP(LOG_COLLCETOR_SSID, "testpass"); // logcollector
-    WiFiMulti.addAP(sec.SSID_1,sec.pass_1);
-    WiFiMulti.addAP(sec.SSID_2,sec.pass_2);
-    WiFiMulti.run(5000);
+    WiFiMulti.addAP(LOG_COLLECTOR_SSID, "testpass"); // logcollector
+    WiFiMulti.addAP(sec.SSID_1, sec.pass_1);
+    WiFiMulti.addAP(sec.SSID_2, sec.pass_2);
+    if (WiFiMulti.run(5000) == WL_CONNECTED)
+    {
+      myDFPlayer.volume(10);
+      myDFPlayer.playMp3Folder(AUDIO_CONNECTED);
+    }
     delay(1000); // give somte time for the Wifi connection
   }
   syncClock();
@@ -820,16 +833,30 @@ void setup()
     syncParams();
     updateFunc(name, ver); // checking update
   }
-  if(ESP.getResetReason() == "Exception" && ESP.getResetReason() == "Hardware Watchdog" && ESP.getResetReason() == "Software Watchdog"){
-    saveLog(FAILED_START,String(ESP.getResetInfo()));
+  if (ESP.getResetReason() == "Exception" && ESP.getResetReason() == "Hardware Watchdog" && ESP.getResetReason() == "Software Watchdog")
+  {
+    saveLog(FAILED_START, String(ESP.getResetInfo()));
   }
+  if (WiFi.status() == WL_CONNECTED && WiFi.SSID() == String(LOG_COLLECTOR_SSID))
+  {
+    myDFPlayer.volume(10);
+    myDFPlayer.playMp3Folder(AUDIO_CONNECTED_TO_LOGCOLLECTOR);
+    delay(2500);
+    myDFPlayer.playMp3Folder(AUDIO_SENDING_LOGS);
+    postLog("/logfile1.txt", "/logfile2.txt");
+    postLog("/logfile2.txt", "/logfile1.txt");
+  }
+
+  myDFPlayer.volume(10);
+  myDFPlayer.playMp3Folder(AUDIO_SETUP_FINISHED);
+  delay(2500);
   myDFPlayer.stop();
 }
 
 void loop()
 {
   Serial.println(F("begining of main loop"));
-delay(1000); //if there is no track, there will be a lot of logs. This will prevent to make logs every ms or so.
+  delay(1000); // if there is no track, there will be a lot of logs. This will prevent to make logs every ms or so.
 
   // Maintain WiFi connection
   if (WiFiMulti.run(5000) == WL_CONNECTED)
@@ -841,11 +868,6 @@ delay(1000); //if there is no track, there will be a lot of logs. This will prev
   }
 
   delay(1000); // if there is no track, there will be a lot of logs. This will prevent to make logs every ms or so.
-  if (WiFi.status() == WL_CONNECTED && WiFi.SSID() == String(LOG_COLLCETOR_SSID) )
-  {
-    postLog("/logfile1.txt", "/logfile2.txt");
-    postLog("/logfile2.txt", "/logfile1.txt");
-  }
 
   if (minute() < 5)
   {
@@ -872,7 +894,7 @@ delay(1000); //if there is no track, there will be a lot of logs. This will prev
   int tracksize = thisHourParams["tracks"].size();
   if (tracksize < 1)
   {
-    long long sleeptime = (59 - minute() + 2) * 60 * 1000; //wait until next hour first minutes
+    long long sleeptime = (59 - minute() + 2) * 60 * 1000; // wait until next hour first minutes
     char str[256];
     sprintf(str, "%lld", sleeptime);
     if (sleeptime > 0LL && sleeptime < 3600000LL)
@@ -894,8 +916,8 @@ delay(1000); //if there is no track, there will be a lot of logs. This will prev
   int tracklength = getTrackLength(currentTrack);
   saveLog(TRACK_PLAYED, String(currentTrack) + "-" + String(tracklength));
   myDFPlayer.volume(volume);
-  myDFPlayer.play(currentTrack);
-  delay(tracklength / 2 * 1000); // wait until the half of the track
+  myDFPlayer.playMp3Folder(currentTrack); // indexed from 0?
+  delay(tracklength / 2 * 1000);          // wait until the half of the track
   logDFPlayerMessage();
   delay(tracklength / 2 * 1000); // wait until the end of the track
   logDFPlayerMessage();
