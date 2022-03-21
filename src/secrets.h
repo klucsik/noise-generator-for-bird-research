@@ -3,7 +3,7 @@
 class Secrets
 {
 public:
-    String update_server = "http://arduino-update-service.herokuapp.com";
+    String update_server = "http://arduino-webupdate.klucsik.fun";
     const char *SSID_1 = "birdspot";
     const char *pass_1 = "Jelszo11";
     const char *SSID_2 = "LIMNOLOGIA";

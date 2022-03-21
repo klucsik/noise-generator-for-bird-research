@@ -9,7 +9,7 @@ Config conf;
 Secrets sec;
 
 static String name = conf.name;
-static String ver = "1_3";
+static String ver = "1_5";
 
 const String update_server = sec.update_server; // at this is url is the python flask update server, which I wrote
 const String server_url = conf.server_url;
@@ -820,11 +820,12 @@ void setup()
     }
     delay(1000); // give somte time for the Wifi connection
   }
-  syncClock();
-  digitalClockDisplay(); // show thwe current time in the terminal
-  saveLog(START_UP, ver);
-  if (ESP.getResetReason() != "Deep-Sleep Wake")
-  { // kézi újraindításnál, vagy power cyclenél
+
+  if (WiFi.status() == WL_CONNECTED && WiFi.SSID() != String(LOG_COLLECTOR_SSID))
+  { // nem logcollector wifin
+    syncClock();
+    saveLog(START_UP, ver);
+    digitalClockDisplay(); // show thwe current time in the terminal
     syncTrackLength();
     syncParams();
     delay(1000);
@@ -832,6 +833,9 @@ void setup()
     delay(1000);
     syncParams();
     updateFunc(name, ver); // checking update
+  }
+  else {
+    saveLog(START_UP, ver);
   }
   if (ESP.getResetReason() == "Exception" && ESP.getResetReason() == "Hardware Watchdog" && ESP.getResetReason() == "Software Watchdog")
   {
