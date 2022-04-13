@@ -799,13 +799,11 @@ void setup()
   syncClock();
   startMp3(mySoftwareSerial);
   LittleFS.begin();
-  if (ESP.getResetReason() != "Deep-Sleep Wake")
-  { // kézi újraindításnál, vagy power cyclenél
-    Serial.println(F("Showing of sound skills for humans"));
-    myDFPlayer.volume(10);
-    myDFPlayer.playMp3Folder(AUDIO_STARTED_SETUP);
-    delay(1000);
-  }
+  myDFPlayer.reset();
+  myDFPlayer.volume(10);
+  myDFPlayer.playMp3Folder(AUDIO_STARTED_SETUP);
+  delay(1000);
+
   int numberOfNetworks = WiFi.scanNetworks();
   delay(100);
   if (numberOfNetworks > 0)
@@ -920,15 +918,14 @@ void loop()
   }
 
   Serial.printf("free heap size: %u\n", ESP.getFreeHeap());
-  // startMp3(mySoftwareSerial); //Ettől recseg
   int currentTrack = thisHourParams["tracks"][random(0, tracksize)];
   int minT = thisHourParams["minT"];
   int maxT = thisHourParams["maxT"];
   int tracklength = getTrackLength(currentTrack);
   saveLog(TRACK_PLAYED, String(currentTrack) + "-" + String(tracklength));
-  startMp3(mySoftwareSerial);
+  myDFPlayer.reset();
   myDFPlayer.volume(volume);
-  myDFPlayer.playMp3Folder(currentTrack); // indexed from 0?
+  myDFPlayer.play(currentTrack); // indexed from 0?
   blinkDelay(tracklength / 2 * 1000);          // wait until the half of the track
 
   logDFPlayerMessage();
