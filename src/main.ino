@@ -9,7 +9,7 @@ Config conf;
 Secrets sec;
 
 static String name = conf.name;
-static String ver = "1_5";
+static String ver = "1_6";
 
 const String update_server = sec.update_server; // at this is url is the python flask update server, which I wrote
 const String server_url = conf.server_url;
@@ -770,7 +770,14 @@ int POSTTask(String url, String payload) // Make a post request
 };
 
 /**************end of section********************/
-
+void blinkDelay(int seconds){
+    for(int s=0; s < (seconds/2); s++){
+      digitalWrite(LED_BUILTIN,HIGH);
+      delay(1000);
+      digitalWrite(LED_BUILTIN,LOW);
+      delay(1000);
+    }
+}
 /**********************************************
              Main arduino functions
 
@@ -789,7 +796,7 @@ void setup()
   Serial.println(ESP.getChipId());
   Wire.begin(i2cSDAPin, i2cSCLPin);
   rtc.begin();
-
+  syncClock();
   startMp3(mySoftwareSerial);
   LittleFS.begin();
   if (ESP.getResetReason() != "Deep-Sleep Wake")
@@ -919,11 +926,13 @@ void loop()
   int maxT = thisHourParams["maxT"];
   int tracklength = getTrackLength(currentTrack);
   saveLog(TRACK_PLAYED, String(currentTrack) + "-" + String(tracklength));
+  startMp3(mySoftwareSerial);
   myDFPlayer.volume(volume);
   myDFPlayer.playMp3Folder(currentTrack); // indexed from 0?
-  delay(tracklength / 2 * 1000);          // wait until the half of the track
+  blinkDelay(tracklength / 2 * 1000);          // wait until the half of the track
+
   logDFPlayerMessage();
-  delay(tracklength / 2 * 1000); // wait until the end of the track
+  blinkDelay(tracklength / 2 * 1000); // wait until the end of the track
   logDFPlayerMessage();
 
   // calculate pause between tracks:
