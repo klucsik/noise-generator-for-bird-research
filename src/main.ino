@@ -772,9 +772,10 @@ int POSTTask(String url, String payload) // Make a post request
 /**************end of section********************/
 void blinkDelay(int seconds){
     for(int s=0; s < (seconds/2); s++){
-      digitalWrite(LED_BUILTIN,HIGH);
-      delay(1000);
+      pinMode(LED_BUILTIN,OUTPUT);
       digitalWrite(LED_BUILTIN,LOW);
+      delay(1000);
+      digitalWrite(LED_BUILTIN,HIGH);
       delay(1000);
     }
 }
@@ -926,10 +927,9 @@ void loop()
   myDFPlayer.reset();
   myDFPlayer.volume(volume);
   myDFPlayer.play(currentTrack); // indexed from 0?
-  blinkDelay(tracklength / 2 * 1000);          // wait until the half of the track
-
+  blinkDelay(tracklength / 2);          // wait until the half of the track
   logDFPlayerMessage();
-  blinkDelay(tracklength / 2 * 1000); // wait until the end of the track
+  blinkDelay(tracklength / 2); // wait until the end of the track
   logDFPlayerMessage();
 
   // calculate pause between tracks:
