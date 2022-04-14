@@ -9,7 +9,7 @@ Config conf;
 Secrets sec;
 
 static String name = conf.name;
-static String ver = "1_7";
+static String ver = "1_8";
 
 const String update_server = sec.update_server; // at this is url is the python flask update server, which I wrote
 const String server_url = conf.server_url;
@@ -65,7 +65,7 @@ static char *LOG_COLLECTOR_SSID = "logcollector-access-point";
 #define START_UP 7 // version
 #define SLEEP 9    // sleep minutes
 #define CURRENT_PLAYPARAM 10
-#define DF_PLAYER_MESSAGE 11
+#define DFPLAYER_PLAYED_TRACK 11
 // MessageCodes:
 //   errors:
 #define DFPLAYER_START_ERROR 91
@@ -513,13 +513,9 @@ String printDetail(uint8_t type, int value)
 
 void logDFPlayerMessage()
 {
-  if (myDFPlayer.available())
-  {
-    if (myDFPlayer.readType() == DFPlayerError)
-    {
-      saveLog(DF_PLAYER_MESSAGE, String(myDFPlayer.readState()) + "-" + myDFPlayer.readType() + "-" + myDFPlayer.read());
-    }
-  }
+
+  saveLog(DFPLAYER_PLAYED_TRACK, String(myDFPlayer.readCurrentFileNumber()));
+
 }
 
 boolean hourlySetupFlag = false;
@@ -859,6 +855,8 @@ void setup()
     postLog("/logfile1.txt", "/logfile2.txt");
     postLog("/logfile2.txt", "/logfile1.txt");
   }
+  getPlayParams();
+  saveLog(CURRENT_PLAYPARAM, String(paramVersionHere));
 
   myDFPlayer.volume(10);
   myDFPlayer.playMp3Folder(AUDIO_SETUP_FINISHED);
@@ -934,10 +932,9 @@ void loop()
   myDFPlayer.playMp3Folder(currentTrack);
   Serial.println("desired volume:" + String(volume) + ", mp3 volume: " + String(myDFPlayer.readVolume()));
   blinkDelay(tracklength / 2);   // wait until the half of the track
+  Serial.println("desired track:" + String(currentTrack) + ", mp3 track: " + String(myDFPlayer.readCurrentFileNumber()));
   logDFPlayerMessage();
   blinkDelay(tracklength / 2); // wait until the end of the track
-  logDFPlayerMessage();
-
   // calculate pause between tracks:
   long calculatedDelay = random(minT, maxT) * 1000;
   saveLog(PAUSE_TIME, String(calculatedDelay / 1000));
