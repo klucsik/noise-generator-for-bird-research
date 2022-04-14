@@ -9,7 +9,7 @@ Config conf;
 Secrets sec;
 
 static String name = conf.name;
-static String ver = "1_6";
+static String ver = "1_7";
 
 const String update_server = sec.update_server; // at this is url is the python flask update server, which I wrote
 const String server_url = conf.server_url;
@@ -33,7 +33,6 @@ const String logcollector_url = conf.logcollector_url;
 #include "DFRobotDFPlayerMini.h"
 #include "ArduinoJson.h"
 #include "TimeLib.h"
-#include <WiFiManager.h> //https://github.com/tzapu/WiFiManager
 ESP8266WiFiMulti WiFiMulti;
 WiFiClient client;
 
@@ -770,14 +769,16 @@ int POSTTask(String url, String payload) // Make a post request
 };
 
 /**************end of section********************/
-void blinkDelay(int seconds){
-    for(int s=0; s < (seconds/2); s++){
-      pinMode(LED_BUILTIN,OUTPUT);
-      digitalWrite(LED_BUILTIN,LOW);
-      delay(1000);
-      digitalWrite(LED_BUILTIN,HIGH);
-      delay(1000);
-    }
+void blinkDelay(int seconds)
+{
+  for (int s = 0; s < (seconds / 2); s++)
+  {
+    pinMode(LED_BUILTIN, OUTPUT);
+    digitalWrite(LED_BUILTIN, LOW);
+    delay(1000);
+    digitalWrite(LED_BUILTIN, HIGH);
+    delay(1000);
+  }
 }
 /**********************************************
              Main arduino functions
@@ -802,6 +803,8 @@ void setup()
   LittleFS.begin();
   myDFPlayer.reset();
   myDFPlayer.volume(10);
+  delay(100);
+  myDFPlayer.volume(10);
   myDFPlayer.playMp3Folder(AUDIO_STARTED_SETUP);
   delay(1000);
 
@@ -814,7 +817,6 @@ void setup()
       Serial.println(WiFi.SSID(i));
     }
     delay(100);
-    // connect to fix networks here with WiFiMulti. This will ovberride the saved network in wifiManager, so only uncomment this when its okay to reconnect with wifimanager on every boot
     WiFi.mode(WIFI_STA);
     WiFiMulti.addAP(LOG_COLLECTOR_SSID, "testpass"); // logcollector
     WiFiMulti.addAP(sec.SSID_1, sec.pass_1);
@@ -840,7 +842,8 @@ void setup()
     syncParams();
     updateFunc(name, ver); // checking update
   }
-  else {
+  else
+  {
     saveLog(START_UP, ver);
   }
   if (ESP.getResetReason() == "Exception" && ESP.getResetReason() == "Hardware Watchdog" && ESP.getResetReason() == "Software Watchdog")
@@ -877,17 +880,20 @@ void loop()
     Serial.println(WiFi.localIP());
   }
 
-  delay(1000); // if there is no track, there will be a lot of logs. This will prevent to make logs every ms or so.
+  JsonObject thisHourParams = getPlayParams();
 
   if (minute() < 5)
   {
     if (!hourlySetupFlag) // just once do the hourly stuff
     {
       syncClock();
-      updateFunc(name, ver); // checking update
-      syncParams();
-      delay(1000);
-      syncTrackLength();
+      if (WiFi.status() == WL_CONNECTED && WiFi.SSID() != String(LOG_COLLECTOR_SSID))
+      {
+        updateFunc(name, ver); // checking update
+        syncParams();
+        delay(1000);
+        syncTrackLength();
+      }
       saveLog(CURRENT_PLAYPARAM, String(paramVersionHere));
       hourlySetupFlag = true;
     }
@@ -897,9 +903,6 @@ void loop()
     hourlySetupFlag = false;
   }
 
-  // main business logic
-
-  JsonObject thisHourParams = getPlayParams();
 
   int tracksize = thisHourParams["tracks"].size();
   if (tracksize < 1)
@@ -926,8 +929,11 @@ void loop()
   saveLog(TRACK_PLAYED, String(currentTrack) + "-" + String(tracklength));
   myDFPlayer.reset();
   myDFPlayer.volume(volume);
-  myDFPlayer.play(currentTrack); // indexed from 0?
-  blinkDelay(tracklength / 2);          // wait until the half of the track
+  delay(100);
+  myDFPlayer.volume(volume);
+  myDFPlayer.playMp3Folder(currentTrack);
+  Serial.println("desired volume:" + String(volume) + ", mp3 volume: " + String(myDFPlayer.readVolume()));
+  blinkDelay(tracklength / 2);   // wait until the half of the track
   logDFPlayerMessage();
   blinkDelay(tracklength / 2); // wait until the end of the track
   logDFPlayerMessage();
