@@ -9,7 +9,7 @@ Config conf;
 Secrets sec;
 
 static String name = conf.name;
-static String ver = "1_8";
+static String ver = "1_9";
 
 const String update_server = sec.update_server; // at this is url is the python flask update server, which I wrote
 const String server_url = conf.server_url;
@@ -185,13 +185,16 @@ void syncClock()
         break;
       }
     }
+    Serial.println("Set rtc to:" + String(now()));
     rtc.set(now());
     setSyncInterval(3000);
     delay(100);
   }
   else
   {
+    Serial.println("Using rtc as clock provider.");
     setSyncProvider(rtc.get);
+    setSyncInterval(3000);
   }
   void digitalClockDisplay();
   saveLog(INNER_NOW, String(now()));
@@ -210,6 +213,7 @@ void printDigits(int digits)
 void digitalClockDisplay()
 {
   // digital clock display of the time
+  Serial.println();
   Serial.print(hour());
   printDigits(minute());
   printDigits(second());
@@ -855,6 +859,14 @@ void setup()
     postLog("/logfile1.txt", "/logfile2.txt");
     postLog("/logfile2.txt", "/logfile1.txt");
   }
+
+  if (now() < 1650470014){
+    myDFPlayer.playMp3Folder(AUDIO_ERROR);
+    Serial.println("Clock sync failed, restart");
+    delay(15000);
+    ESP.restart();
+  }
+
   getPlayParams();
   saveLog(CURRENT_PLAYPARAM, String(paramVersionHere));
 
