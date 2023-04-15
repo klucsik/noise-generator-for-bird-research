@@ -9,7 +9,7 @@ Config conf;
 Secrets sec;
 
 static String name = conf.name;
-static String ver = "1_9";
+static String ver = "1_10";
 
 const String update_server = sec.update_server; // at this is url is the python flask update server, which I wrote
 const String server_url = conf.server_url;
@@ -52,6 +52,148 @@ DS3232RTC rtc;
 
 int volume = 2;
 static char *LOG_COLLECTOR_SSID = "logcollector-access-point";
+
+
+
+/**********************************************
+             wifi http calls
+
+***********************************************/
+#include <ESP8266httpUpdate.h>
+#include <ESP8266HTTPClient.h>
+
+String GETTask(String url)
+{
+  WiFiClient client;
+  HTTPClient http;
+  if (http.begin(client, url))
+  {
+    USE_SERIAL.print(F("[HTTP] GET "));
+    USE_SERIAL.println(url);
+
+    int httpCode = http.GET();
+
+    // httpCode will be negative on error
+    if (httpCode > 0)
+    {
+      USE_SERIAL.printf("[HTTP] GET... code: %d\n", httpCode);
+      if (httpCode == 302)
+      {
+        String redirectUrl = http.getLocation();
+        http.end();
+        return redirectUrl;
+      }
+      else
+      {
+        String payload = http.getString();
+        USE_SERIAL.println(payload);
+        http.end();
+
+        return payload;
+      }
+    }
+    else
+    {
+      USE_SERIAL.print(F("[HTTP] GET... failed, error: "));
+      USE_SERIAL.println(httpCode);
+      http.end();
+      return "";
+    }
+
+    http.end();
+  }
+  else
+  {
+    USE_SERIAL.println(F("[HTTP] Unable to connect"));
+    return "";
+  }
+  return "";
+};
+
+int StatusOnlyGetTask(String url)
+{
+  WiFiClient client;
+  HTTPClient http;
+  if (http.begin(client, url))
+  {
+    USE_SERIAL.print(F("[HTTP] GET (statuscode only) "));
+    USE_SERIAL.println(url);
+
+    int httpCode = http.GET();
+
+    // httpCode will be negative on error
+    if (httpCode > 0)
+    {
+      USE_SERIAL.printf("[HTTP] GET... code: %d\n", httpCode);
+      return httpCode;
+    }
+    else
+    {
+      USE_SERIAL.print(F("[HTTP] GET... failed, error: "));
+      USE_SERIAL.println(httpCode);
+      http.end();
+      return 998;
+    }
+
+    http.end();
+  }
+  else
+  {
+    USE_SERIAL.println(F("[HTTP] Unable to connect"));
+    return 999;
+  }
+}
+
+int POSTTask(String url, String payload) // Make a post request
+{
+  WiFiClient client;
+  HTTPClient http;
+  if (http.begin(client, url))
+  {
+    Serial.print(F("[HTTPS] POST "));
+    Serial.print(url);
+    Serial.print(" --> ");
+    Serial.println(payload);
+    http.addHeader(F("Content-Type"), F("application/json"));
+
+    int httpCode = http.POST(payload);
+
+    // httpCode will be negative on error
+    if (httpCode > 0)
+    {
+      // HTTP header has been send and Server response header has been handled
+      Serial.print(F("[HTTPS] POST... code: "));
+      Serial.println(httpCode);
+
+      // file found at server
+      if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY)
+      {
+        String payload = http.getString();
+        http.end();
+        return httpCode;
+      }
+    }
+    else
+    {
+      Serial.print(F("[HTTPS] POST... failed, error: "));
+      Serial.println(httpCode);
+      Serial.println(" " + http.getString());
+      http.end();
+      return httpCode;
+    }
+
+    http.end();
+  }
+  else
+  {
+    Serial.println(F("[HTTPS] Unable to connect"));
+    return 999;
+  }
+  return 999;
+};
+
+/**************end of section********************/
+
 /**********************************************
              Logging
 
@@ -168,38 +310,8 @@ const int timeZone = 0; // UTC
 WiFiUDP Udp;
 unsigned int localPort = 8888;
 
-void syncClock()
-{
-  if (WiFi.status() == WL_CONNECTED && WiFi.SSID() != String(LOG_COLLECTOR_SSID))
-  {
-    USE_SERIAL.println(F("Synchronizing inner clock..."));
-    Udp.begin(localPort);
-    setSyncProvider(getNtpTime);
-    setSyncInterval(1);
-    for (int i = 0; i < 10; i++)
-    {
-      delay(3000);
-      Serial.println("waiting for ntp response");
-      if (timeStatus() == timeSet)
-      {
-        break;
-      }
-    }
-    Serial.println("Set rtc to:" + String(now()));
-    rtc.set(now());
-    setSyncInterval(3000);
-    delay(100);
-  }
-  else
-  {
-    Serial.println("Using rtc as clock provider.");
-    setSyncProvider(rtc.get);
-    setSyncInterval(3000);
-  }
-  void digitalClockDisplay();
-  saveLog(INNER_NOW, String(now()));
-  saveLog(RTC_NOW, String(rtc.get()));
-};
+const int NTP_PACKET_SIZE = 48;     // NTP time is in the first 48 bytes of message
+byte packetBuffer[NTP_PACKET_SIZE]; // buffer to hold incoming & outgoing packets
 
 void printDigits(int digits)
 {
@@ -226,8 +338,30 @@ void digitalClockDisplay()
   Serial.println();
 }
 
-const int NTP_PACKET_SIZE = 48;     // NTP time is in the first 48 bytes of message
-byte packetBuffer[NTP_PACKET_SIZE]; // buffer to hold incoming & outgoing packets
+// send an NTP request to the time server at the given address
+void sendNTPpacket(IPAddress &address)
+{
+  // set all bytes in the buffer to 0
+  memset(packetBuffer, 0, NTP_PACKET_SIZE);
+  // Initialize values needed to form NTP request
+  // (see URL above for details on the packets)
+  packetBuffer[0] = 0b11100011; // LI, Version, Mode
+  packetBuffer[1] = 0;          // Stratum, or type of clock
+  packetBuffer[2] = 6;          // Polling Interval
+  packetBuffer[3] = 0xEC;       // Peer Clock Precision
+  // 8 bytes of zero for Root Delay & Root Dispersion
+  packetBuffer[12] = 49;
+  packetBuffer[13] = 0x4E;
+  packetBuffer[14] = 49;
+  packetBuffer[15] = 52;
+  // all NTP fields have been given values, now
+  // you can send a packet requesting a timestamp:
+  Udp.beginPacket(address, 123); // NTP requests are to port 123
+  Udp.write(packetBuffer, NTP_PACKET_SIZE);
+  Udp.endPacket();
+}
+
+
 
 time_t getNtpTime()
 {
@@ -263,31 +397,58 @@ time_t getNtpTime()
   return 0; // return 0 if unable to get the time
 }
 
-// send an NTP request to the time server at the given address
-void sendNTPpacket(IPAddress &address)
+void syncClock()
 {
-  // set all bytes in the buffer to 0
-  memset(packetBuffer, 0, NTP_PACKET_SIZE);
-  // Initialize values needed to form NTP request
-  // (see URL above for details on the packets)
-  packetBuffer[0] = 0b11100011; // LI, Version, Mode
-  packetBuffer[1] = 0;          // Stratum, or type of clock
-  packetBuffer[2] = 6;          // Polling Interval
-  packetBuffer[3] = 0xEC;       // Peer Clock Precision
-  // 8 bytes of zero for Root Delay & Root Dispersion
-  packetBuffer[12] = 49;
-  packetBuffer[13] = 0x4E;
-  packetBuffer[14] = 49;
-  packetBuffer[15] = 52;
-  // all NTP fields have been given values, now
-  // you can send a packet requesting a timestamp:
-  Udp.beginPacket(address, 123); // NTP requests are to port 123
-  Udp.write(packetBuffer, NTP_PACKET_SIZE);
-  Udp.endPacket();
-}
+  if (WiFi.status() == WL_CONNECTED && WiFi.SSID() != String(LOG_COLLECTOR_SSID))
+  {
+    USE_SERIAL.println(F("Synchronizing inner clock..."));
+    Udp.begin(localPort);
+    setSyncProvider(getNtpTime);
+    setSyncInterval(1);
+    for (int i = 0; i < 10; i++)
+    {
+      delay(3000);
+      Serial.println("waiting for ntp response");
+      if (timeStatus() == timeSet)
+      {
+        break;
+      }
+    }
+    Serial.println("Set rtc to:" + String(now()));
+    rtc.set(now());
+    setSyncInterval(3000);
+    delay(100);
+  }
+  else
+  {
+    Serial.println("Using rtc as clock provider.");
+    setSyncProvider(rtc.get);
+    setSyncInterval(3000);
+  }
+  void digitalClockDisplay();
+  saveLog(INNER_NOW, String(now()));
+  saveLog(RTC_NOW, String(rtc.get()));
+};
+
 /**************end of section********************/
 
 int paramVersionHere = -2;
+
+String getParams()
+{
+  File file = LittleFS.open("/playParams.json", "r");
+  if (!file)
+  {
+    saveLog(FILE_OPEN_ERROR, "p");
+    return "";
+  }
+  else
+  {
+    String data = file.readString();
+    file.close();
+    return data;
+  }
+};
 
 /*
 checks if the daily paramteres need an update
@@ -332,21 +493,7 @@ void syncParams()
   }
 };
 
-String getParams()
-{
-  File file = LittleFS.open("/playParams.json", "r");
-  if (!file)
-  {
-    saveLog(FILE_OPEN_ERROR, "p");
-    return "";
-  }
-  else
-  {
-    String data = file.readString();
-    file.close();
-    return data;
-  }
-};
+
 
 /*
 returns the object for the current hours play parameters (which tracks, pause times between tracks) from the global json object
@@ -528,45 +675,24 @@ boolean hourlySetupFlag = false;
              webupdate functions - only works with WiFi
 
 ***********************************************/
-void updateFunc(String Name, String Version) // TODO: documentation
+void update_started()
 {
-  HTTPClient http;
+  USE_SERIAL.println("CALLBACK:  HTTP update process started");
+}
 
-  String url = update_server + "/check?" + "name=" + Name + "&ver=" + Version;
-  USE_SERIAL.print("[HTTP] check at " + url);
-  if (http.begin(client, url))
-  { // HTTP
+void update_finished()
+{
+  USE_SERIAL.println("CALLBACK:  HTTP update process finished");
+}
 
-    USE_SERIAL.print("[HTTP] GET...\n");
-    // start connection and send HTTP header
-    int httpCode = http.GET();
-    delay(10000); // wait for bootup of the server
-    httpCode = http.GET();
-    // httpCode will be negative on error
-    if (httpCode > 0)
-    {
-      // HTTP header has been send and Server response header has been handled
-      USE_SERIAL.printf("[HTTP] GET... code: %d\n", httpCode);
+void update_progress(int cur, int total)
+{
+  USE_SERIAL.printf("CALLBACK:  HTTP update process at %d of %d bytes...\n", cur, total);
+}
 
-      // file found at server
-      if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY)
-      {
-        String payload = http.getString();
-        USE_SERIAL.println(payload);
-        if (payload.indexOf("bin") > 0)
-        {
-          LittleFS.end();
-          httpUpdateFunc(update_server + payload);
-        }
-      }
-    }
-    else
-    {
-      USE_SERIAL.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
-    }
-
-    http.end();
-  }
+void update_error(int err)
+{
+  USE_SERIAL.printf("CALLBACK:  HTTP update fatal error code %d\n", err);
 }
 
 void httpUpdateFunc(String update_url) // this is from the core example
@@ -610,165 +736,50 @@ void httpUpdateFunc(String update_url) // this is from the core example
   }
 }
 
-void update_started()
+void updateFunc(String Name, String Version) // TODO: documentation
 {
-  USE_SERIAL.println("CALLBACK:  HTTP update process started");
-}
-
-void update_finished()
-{
-  USE_SERIAL.println("CALLBACK:  HTTP update process finished");
-}
-
-void update_progress(int cur, int total)
-{
-  USE_SERIAL.printf("CALLBACK:  HTTP update process at %d of %d bytes...\n", cur, total);
-}
-
-void update_error(int err)
-{
-  USE_SERIAL.printf("CALLBACK:  HTTP update fatal error code %d\n", err);
-}
-/**************end of section********************/
-
-/**********************************************
-             wifi http calls
-
-***********************************************/
-#include <ESP8266httpUpdate.h>
-#include <ESP8266HTTPClient.h>
-
-String GETTask(String url)
-{
-  WiFiClient client;
   HTTPClient http;
-  if (http.begin(client, url))
-  {
-    USE_SERIAL.print(F("[HTTP] GET "));
-    USE_SERIAL.println(url);
 
+  String url = update_server + "/check?" + "name=" + Name + "&ver=" + Version;
+  USE_SERIAL.print("[HTTP] check at " + url);
+  if (http.begin(client, url))
+  { // HTTP
+
+    USE_SERIAL.print("[HTTP] GET...\n");
+    // start connection and send HTTP header
     int httpCode = http.GET();
-
-    // httpCode will be negative on error
-    if (httpCode > 0)
-    {
-      USE_SERIAL.printf("[HTTP] GET... code: %d\n", httpCode);
-      if (httpCode == 302)
-      {
-        String redirectUrl = http.getLocation();
-        http.end();
-        return redirectUrl;
-      }
-      else
-      {
-        String payload = http.getString();
-        USE_SERIAL.println(payload);
-        http.end();
-
-        return payload;
-      }
-    }
-    else
-    {
-      USE_SERIAL.print(F("[HTTP] GET... failed, error: "));
-      USE_SERIAL.println(httpCode);
-      http.end();
-      return "";
-    }
-
-    http.end();
-  }
-  else
-  {
-    USE_SERIAL.println(F("[HTTP] Unable to connect"));
-    return "";
-  }
-  return "";
-};
-
-int StatusOnlyGetTask(String url)
-{
-  WiFiClient client;
-  HTTPClient http;
-  if (http.begin(client, url))
-  {
-    USE_SERIAL.print(F("[HTTP] GET (statuscode only) "));
-    USE_SERIAL.println(url);
-
-    int httpCode = http.GET();
-
-    // httpCode will be negative on error
-    if (httpCode > 0)
-    {
-      USE_SERIAL.printf("[HTTP] GET... code: %d\n", httpCode);
-      return httpCode;
-    }
-    else
-    {
-      USE_SERIAL.print(F("[HTTP] GET... failed, error: "));
-      USE_SERIAL.println(httpCode);
-      http.end();
-      return 998;
-    }
-
-    http.end();
-  }
-  else
-  {
-    USE_SERIAL.println(F("[HTTP] Unable to connect"));
-    return 999;
-  }
-}
-
-int POSTTask(String url, String payload) // Make a post request
-{
-  WiFiClient client;
-  HTTPClient http;
-  if (http.begin(client, url))
-  {
-    Serial.print(F("[HTTPS] POST "));
-    Serial.print(url);
-    Serial.print(" --> ");
-    Serial.println(payload);
-    http.addHeader(F("Content-Type"), F("application/json"));
-
-    int httpCode = http.POST(payload);
-
+    delay(10000); // wait for bootup of the server
+    httpCode = http.GET();
     // httpCode will be negative on error
     if (httpCode > 0)
     {
       // HTTP header has been send and Server response header has been handled
-      Serial.print(F("[HTTPS] POST... code: "));
-      Serial.println(httpCode);
+      USE_SERIAL.printf("[HTTP] GET... code: %d\n", httpCode);
 
       // file found at server
       if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY)
       {
         String payload = http.getString();
-        http.end();
-        return httpCode;
+        USE_SERIAL.println(payload);
+        if (payload.indexOf("bin") > 0)
+        {
+          LittleFS.end();
+          httpUpdateFunc(update_server + payload);
+        }
       }
     }
     else
     {
-      Serial.print(F("[HTTPS] POST... failed, error: "));
-      Serial.println(httpCode);
-      Serial.println(" " + http.getString());
-      http.end();
-      return httpCode;
+      USE_SERIAL.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
     }
 
     http.end();
   }
-  else
-  {
-    Serial.println(F("[HTTPS] Unable to connect"));
-    return 999;
-  }
-  return 999;
-};
+}
 
 /**************end of section********************/
+
+
 void blinkDelay(int seconds)
 {
   for (int s = 0; s < (seconds / 2); s++)
