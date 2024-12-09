@@ -1,0 +1,7 @@
+# Noise Generator For Bird Research
+
+This project contains the code, sample files and configuration files, and the PCB export (made with [Fritzing](https://fritzing.org/)) for a noise generation device, used in research.
+
+## Overview Of The Device
+The main component is the [DF Robot Mini MP3 Player](https://github.com/DFRobot/DFRobotDFPlayerMini) module which can hold an SD Card and a have built-in amplifier good enough to drive a small speaker like the [VS-FR7-4](https://www.visaton.de/en/products/drivers/fullrange-systems/fr-7-4-ohm). This is controlled by [ESP8266 Microcontroller](https://www.espressif.com/en/products/socs/esp8266) via serial communication. A DSDS3232 Real Time Clock is also attached to the microcontroller to keep track of time. The microcontroller controls - in a hourly resolution - the played tracks (if any), and randomizes the quite periods and the order of the tracks. This configuration can be created and managed via a [web server](https://github.com/klucsik/bird-noise-generation-webserver). The device sends logs and error messages to the server if have active WiFi connection. Otherwise it collects log data locally which can be collected with [Another ESp8266 device with a purposebuilt code](https://github.com/Levente007/bird-noise-generation-logcollector).
+The device's firmware can be upgraded through a WiFi connection, and [a webupdate server](https://github.com/klucsik/arduino-webupdate-service).
